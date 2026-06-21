@@ -2,21 +2,13 @@ plugins {
     id 'com.android.application'
 }
 
-// هک گریدل: دانلود مستقیم هسته Xray در لحظه استارت شدن گریدل قبل از هر بررسی دیگری
-def libsDir = new File(projectDir, "libs")
-if (!libsDir.exists()) libsDir.mkdirs()
-def xrayFile = new File(libsDir, "libv2ray.aar")
-if (!xrayFile.exists()) {
-    println "Downloading Xray Core from Github Releases..."
-    new URL("https://github.com/2dust/AndroidLibXrayLite/releases/download/v26.6.14/libv2ray.aar").withInputStream { i -> xrayFile.withOutputStream { it << i } }
-}
-
 android {
     namespace 'com.fandogh.shekan'
     compileSdk 34
+
     defaultConfig {
         applicationId "com.fandogh.shekan"
-        minSdk 24
+        minSdk 21
         targetSdk 34
         versionCode 1
         versionName "1.0"
@@ -24,5 +16,5 @@ android {
 }
 
 dependencies {
-    implementation files('libs/libv2ray.aar')
+    // هسته اصلی لازم برای اجرای برنامه
 }

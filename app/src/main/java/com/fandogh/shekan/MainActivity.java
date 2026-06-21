@@ -9,6 +9,9 @@ import java.io.File;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
+// این خط تیر خلاص است: ایمپورت مستقیم منابع
+import com.fandogh.shekan.R;
+
 public class MainActivity extends Activity {
 
     private boolean isConnected = false;
@@ -18,7 +21,6 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
-        // تست روت بودن دستگاه
         if (isDeviceRooted()) {
             setContentView(new TextView(this)); 
             Toast.makeText(this, "امکان اجرای فندق‌شکن روی دستگاه‌های روت‌شده وجود ندارد!", Toast.LENGTH_LONG).show();
@@ -68,7 +70,7 @@ public class MainActivity extends Activity {
         btnConnect.setText("در حال دریافت کانفیگ‌های امن...");
         btnConnect.setBackgroundColor(0xFF2196F3); 
         
-        // شبیه‌سازی اتصال برای تست ظاهر برنامه
+        // تغییر وضعیت برای تست
         btnConnect.setText("متصل به سریع‌ترین سرور 🥜");
         btnConnect.setBackgroundColor(0xFF4CAF50); 
         isConnected = true;

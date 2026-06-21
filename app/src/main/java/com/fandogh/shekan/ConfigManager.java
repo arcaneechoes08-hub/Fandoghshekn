@@ -14,14 +14,10 @@ import javax.crypto.spec.SecretKeySpec;
 
 public class ConfigManager {
 
-<<<<<<< HEAD
-    // لینکی که مستقیماً به متن خام (Raw) در Gist اشاره می‌کند
-=======
     // ۱. لینک Raw گیت‌هاب خودت را اینجا بگذار
->>>>>>> f995db2 (Fix AES key length to exact 16 bytes)
     private static final String GIST_RAW_URL = "https://gist.github.com/arcaneechoes08-hub/97ed58c7ee1f162a7a0ae8608f08b25c.js";
     
-    // ۲. کلید اختصاصی تو (حتماً باید ۱۶ کاراکتر/بایت باشد)
+    // ۲. کلید اختصاصی ۱۶ کاراکتری (اصلاح شده)
     private static final String SECRET_KEY = "FandoghSecretKey"; 
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -65,15 +61,12 @@ public class ConfigManager {
     }
 
     private String decryptAES(String encryptedText, String key) throws Exception {
-        // ابتدا متن بیس۶۴ را به بایت تبدیل میکنیم
         byte[] encryptedBytes = Base64.decode(encryptedText, Base64.DEFAULT);
         
-        // تنظیم الگوریتم AES
         SecretKeySpec secretKey = new SecretKeySpec(key.getBytes("UTF-8"), "AES");
         Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
         cipher.init(Cipher.DECRYPT_MODE, secretKey);
         
-        // رمزگشایی نهایی
         byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
         return new String(decryptedBytes, "UTF-8");
     }

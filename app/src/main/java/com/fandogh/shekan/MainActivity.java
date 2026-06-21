@@ -10,7 +10,6 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
 // این خط تیر خلاص است: ایمپورت مستقیم منابع
-import com.fandogh.shekan.R;
 
 public class MainActivity extends Activity {
 
@@ -28,8 +27,8 @@ public class MainActivity extends Activity {
             return;
         }
 
-        setContentView(R.layout.activity_main);
-        btnConnect = findViewById(R.id.btnConnect);
+        setContentView(getResources().getIdentifier("activity_main", "layout", getPackageName()));
+        btnConnect = findViewById(getResources().getIdentifier("btnConnect", "id", getPackageName()));
 
         btnConnect.setOnClickListener(v -> {
             if (!isConnected) {

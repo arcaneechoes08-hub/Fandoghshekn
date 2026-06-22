@@ -12,12 +12,14 @@ public class MainActivity extends Activity {
     private Button btnConnect;
     private ConfigManager configManager;
     private PingManager pingManager;
+    // متغیر جدید برای ذخیره کانفیگ در سطح کل کلاس
+    private String mDecryptedConfig;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        
+
         btnConnect = findViewById(R.id.btnConnect);
         configManager = new ConfigManager();
         pingManager = new PingManager();
@@ -54,22 +56,25 @@ public class MainActivity extends Activity {
         try {
             if (config == null) throw new Exception("کانفیگ خالی است");
             config = config.trim();
-            
+
             if (!config.startsWith("vless://")) {
                 throw new Exception("لینک vless معتبر نیست");
             }
-            
-            String uriBody = config.substring(8); 
+
+            // ذخیره کانفیگ در متغیر کلاس برای استفاده در زمان روشن شدن VPN
+            this.mDecryptedConfig = config;
+
+            String uriBody = config.substring(8);
             int atIndex = uriBody.lastIndexOf("@");
             if (atIndex == -1) throw new Exception("علامت @ پیدا نشد");
-            
+
             String serverPart = uriBody.substring(atIndex + 1);
             String[] mainParts = serverPart.split("[?#]");
             String hostAndPort = mainParts[0];
-            
+
             int colonIndex = hostAndPort.lastIndexOf(":");
             if (colonIndex == -1) throw new Exception("پورت سرور پیدا نشد");
-            
+
             String host = hostAndPort.substring(0, colonIndex).trim();
             String portStr = hostAndPort.substring(colonIndex + 1).trim();
             int port = Integer.parseInt(portStr);
@@ -107,7 +112,10 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode == RESULT_OK) {
             Intent intent = new Intent(this, FandoghVpnService.class);
+            // تزریق کانفیگ واقعی به داخل اینتنت سرویس
+            intent.putExtra("VLESS_LINK", mDecryptedConfig);
             startService(intent);
+            
             btnConnect.setEnabled(true);
             btnConnect.setText("فندق‌شکن فعال است 🛡️");
             btnConnect.setBackgroundColor(0xFF4CAF50);

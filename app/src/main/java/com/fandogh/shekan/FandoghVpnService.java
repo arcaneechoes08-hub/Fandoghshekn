@@ -4,11 +4,16 @@ import android.content.Intent;
 import android.net.VpnService;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 public class FandoghVpnService extends VpnService implements Runnable {
     private static final String TAG = "FandoghVpnService";
     private Thread mThread;
     private ParcelFileDescriptor mInterface;
+    private Process mXrayProcess;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -35,24 +40,46 @@ public class FandoghVpnService extends VpnService implements Runnable {
     @Override
     public void run() {
         try {
-            Log.i(TAG, "تنظیمات تونل فندق‌شکن در حال پیکربندی...");
+            Log.i(TAG, "در حال استخراج و آماده‌سازی موتور فندق‌شکن...");
+            File binDir = getFilesDir();
+            File xrayBin = new File(binDir, "xray");
             
-            // تشکیل تونل مجازی برای مصادره ترافیک
+            // استخراج باینری از Assets به حافظه داخلی برای کسب مجوز اجرا
+            if (!xrayBin.exists()) {
+                InputStream is = getAssets().open("xray");
+                OutputStream os = new FileOutputStream(xrayBin);
+                byte[] buffer = new byte[1024];
+                int length;
+                while ((length = is.read(buffer)) > 0) {
+                    os.write(buffer, 0, length);
+                }
+                os.flush(); os.close(); is.close();
+            }
+            
+            // اعطای مجوز اجرایی لینوکس به فایل موتور
+            xrayBin.setExecutable(true, false);
+            Log.i(TAG, "موتور اجرایی آماده شد.");
+
+            // تشکیل تونل مجازی اندروید
             Builder builder = new Builder();
             mInterface = builder.setSession("FandoghShekan")
-                    .addAddress("10.0.0.2", 24) // آی‌پی داخلی تونل
-                    .addDnsServer("8.8.8.8")    // دی‌ان‌اس امن
-                    .addRoute("0.0.0.0", 0)     // هدایت ۱۰۰٪ ترافیک کل سیستم به برنامه
+                    .addAddress("10.0.0.2", 24)
+                    .addDnsServer("8.8.8.8")
+                    .addRoute("0.0.0.0", 0)
                     .establish();
 
-            Log.i(TAG, "تونل مجازی با موفقیت باز شد.");
+            Log.i(TAG, "تونل مجازی باز شد. در حال استارت زدن هسته Xray...");
 
-            // حلقه زنده نگه داشتن سرویس پس‌زمینه
+            // روشن کردن موتور Xray در پس‌زمینه (در مراحل بعد فایل کانفیگ واقعی جایگزین می‌شود)
+            String[] cmd = {xrayBin.getAbsolutePath(), "run", "-config", new File(binDir, "config.json").getAbsolutePath()};
+            // برای تست اولیه، فعلاً فرآیند آماده‌سازی دستور را لاگ می‌کنیم
+            Log.i(TAG, "دستور پرتاب موتور آماده است.");
+
             while (mThread != null && !mThread.isInterrupted()) {
                 Thread.sleep(1000);
             }
         } catch (Exception e) {
-            Log.e(TAG, "خطا در کارکرد سرویس: " + e.getMessage());
+            Log.e(TAG, "خطا در عملکرد هسته: " + e.getMessage());
         } finally {
             stopVpn();
         }
@@ -60,6 +87,10 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
     private void stopVpn() {
         try {
+            if (mXrayProcess != null) {
+                mXrayProcess.destroy();
+                mXrayProcess = null;
+            }
             if (mThread != null) {
                 mThread.interrupt();
                 mThread = null;
@@ -68,9 +99,9 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 mInterface.close();
                 mInterface = null;
             }
-            Log.i(TAG, "تونل فندق‌شکن بسته شد.");
+            Log.i(TAG, "سرویس و موتور فندق‌شکن متوقف شدند.");
         } catch (Exception e) {
-            Log.e(TAG, "خطا در بستن تونل: " + e.getMessage());
+            Log.e(TAG, "خطا در توقف لایه‌ها: " + e.getMessage());
         }
     }
 }

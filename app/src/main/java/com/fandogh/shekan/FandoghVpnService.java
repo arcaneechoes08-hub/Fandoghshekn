@@ -19,16 +19,14 @@ public class FandoghVpnService extends VpnService implements Runnable {
     private Thread mThread;
     private ParcelFileDescriptor mInterface;
     private Process mXrayProcess;
-    private int mTun2SocksPid = -1; // ذخیره PID فرآیند نیتیو
+    private int mTun2SocksPid = -1;
     private String mVlessLink;
 
-    // بارگذاری کتابخانه نیتیو C
     static {
         System.loadLibrary("native-lib");
     }
 
-    // تعریف تابع نیتیو
-    private native int execWithFd(String[] cmd, int tunFd);
+    private native int execWithFd(String[] cmd, int tunFd, String logPath);
 
     private void showStatus(String message) {
         new Handler(Looper.getMainLooper()).post(() ->
@@ -88,24 +86,32 @@ public class FandoghVpnService extends VpnService implements Runnable {
             if (mInterface == null) throw new Exception("تونل VPN ایجاد نشد!");
             int tunFd = mInterface.getFd();
 
-            // 🚀 ۱. روشن کردن Xray (بدون نیاز به FD ارث‌بری)
-            String[] xrayCmd = {xrayBin.getAbsolutePath(), "run", "-config", new File(baseDir, "config.json").getAbsolutePath()};
-            mXrayProcess = Runtime.getRuntime().exec(xrayCmd);
+            // آماده‌سازی فایل‌های گزارش
+            File xrayLog = new File(baseDir, "xray.log");
+            File t2sLog = new File(baseDir, "tun2socks.log");
+            if (xrayLog.exists()) xrayLog.delete();
+            if (t2sLog.exists()) t2sLog.delete();
 
-            // 🚀 ۲. روشن کردن Tun2Socks از طریق پل نیتیو C (تضمین ماندگاری FD)
+            // 🚀 ۱. روشن کردن Xray و هدایت هوشمند لوگ‌ها به فایل
+            String[] xrayCmd = {xrayBin.getAbsolutePath(), "run", "-config", new File(baseDir, "config.json").getAbsolutePath()};
+            ProcessBuilder xrayPb = new ProcessBuilder(xrayCmd);
+            xrayPb.redirectOutput(xrayLog);
+            xrayPb.redirectError(xrayLog);
+            mXrayProcess = xrayPb.start();
+
+            // 🚀 ۲. روشن کردن Tun2Socks از طریق لایه نیتیو
             String[] t2sCmd = {
                 tun2socksBin.getAbsolutePath(),
                 "-device", "fd://" + tunFd,
                 "-proxy", "socks5://127.0.0.1:10808"
             };
+            mTun2SocksPid = execWithFd(t2sCmd, tunFd, t2sLog.getAbsolutePath());
+
+            showStatus("⏳ در حال تحلیل پایداری هسته‌ها...");
             
-            mTun2SocksPid = execWithFd(t2sCmd, tunFd);
-            
-            if (mTun2SocksPid > 0) {
-                showStatus("🚀 فندق‌شکن با موفقیت متصل شد!");
-            } else {
-                throw new Exception("خطا در استارت لایه نیتیو تونل!");
-            }
+            // ۲ ثانیه صبر می‌کنیم تا هسته‌ها بالا بیایند و اگر اروری دارند بنویسند
+            Thread.sleep(2000);
+            checkCoarseLogs(baseDir);
 
             while (mThread != null && !mThread.isInterrupted()) {
                 Thread.sleep(1000);
@@ -117,6 +123,45 @@ public class FandoghVpnService extends VpnService implements Runnable {
         } finally {
             stopVpn();
         }
+    }
+
+    // خواندن فایل‌های جعبه سیاه و نمایش مستقیم روی صفحه گوشی
+    private void checkCoarseLogs(File baseDir) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                File xrayLog = new File(baseDir, "xray.log");
+                File t2sLog = new File(baseDir, "tun2socks.log");
+                StringBuilder report = new StringBuilder();
+
+                if (xrayLog.exists()) {
+                    report.append("🔹 Xray:\n");
+                    BufferedReader br = new BufferedReader(new java.io.FileReader(xrayLog));
+                    String line; int c = 0;
+                    while ((line = br.readLine()) != null && c < 2) {
+                        report.append(line).append("\n"); c++;
+                    }
+                    br.close();
+                }
+
+                if (t2sLog.exists()) {
+                    report.append("\n🔸 Tun2Socks:\n");
+                    BufferedReader br = new BufferedReader(new java.io.FileReader(t2sLog));
+                    String line; int c = 0;
+                    while ((line = br.readLine()) != null && c < 2) {
+                        report.append(line).append("\n"); c++;
+                    }
+                    br.close();
+                }
+
+                if (report.length() > 0) {
+                    Toast.makeText(getApplicationContext(), report.toString(), Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(getApplicationContext(), "🚀 هسته‌ها فعال و سکوت برقرار است!", Toast.LENGTH_SHORT).show();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "خطا در بررسی جعبه سیاه", e);
+            }
+        });
     }
 
     private void generateXrayConfigManual(String link, File dir) throws Exception {
@@ -211,9 +256,8 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
     private void stopVpn() {
         try {
-            // بستن فرآیند نیتیو با ارسال سیگنال لینوکسی از طریق PID
             if (mTun2SocksPid > 0) {
-                android.os.Process.sendSignal(mTun2SocksPid, 9); // SIGKILL
+                android.os.Process.sendSignal(mTun2SocksPid, 9);
                 mTun2SocksPid = -1;
             }
             if (mXrayProcess != null) { mXrayProcess.destroy(); mXrayProcess = null; }

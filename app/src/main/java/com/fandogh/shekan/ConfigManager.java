@@ -14,8 +14,8 @@ import javax.crypto.spec.SecretKeySpec;
 
 public class ConfigManager {
 
-    private static final String GIST_RAW_URL = "لینک_RAW_گیت‌هاب_خودت_را_اینجا_بگذار";
-    private static final String SECRET_KEY = "کلید_۱۶_کاراکتری_ات_را_اینجا_بگذار"; 
+    private static final String GIST_RAW_URL = "https://gist.github.com/arcaneechoes08-hub/97ed58c7ee1f162a7a0ae8608f08b25c.js";
+    private static final String SECRET_KEY = "FandoghSecretKey"; 
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());

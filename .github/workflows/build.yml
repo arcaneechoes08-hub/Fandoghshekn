@@ -14,20 +14,17 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # 🛠️ گام اصلاح‌شده: دانلود هوشمند و بدون خطای Tun2Socks با استفاده از jq
+      # 🛠️ گام اصلاح‌شده: دانلود نسخه لینوکس-آرم۶۴ که کاملاً با اندروید سازگار است
       - name: Download and Prepare Tun2Socks
         run: |
           mkdir -p app/src/main/jniLibs/arm64-v8a
-          echo "🔍 در حال یافتن آخرین نسخه لایه مترجم Tun2Socks..."
+          echo "🔍 در حال یافتن نسخه پایدار لینوکس/اندروید Tun2Socks..."
           
-          # استخراج دقیق لینک دانلود با استفاده از jq و فیلتر کردن بر اساس سیستم‌عامل و معماری
-          LATEST_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/xjasonlyu/tun2socks/releases/latest | jq -r '.assets[] | select(.name | ascii_downcase | contains("android") and contains("arm64")) | .browser_download_url' | head -n 1)
+          # اصلاح فیلتر برای پیدا کردن فایل linux-arm64
+          LATEST_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/xjasonlyu/tun2socks/releases/latest | jq -r '.assets[] | select(.name | ascii_downcase | contains("linux") and contains("arm64") and (contains("v3") | not)) | .browser_download_url' | head -n 1)
           
-          # بررسی برای اطمینان از پیدا شدن لینک
           if [ -z "$LATEST_URL" ] || [ "$LATEST_URL" == "null" ]; then
-            echo "❌ خطا: نتوانستم لینک دانلود مناسب برای اندروید arm64 پیدا کنم!"
-            echo "📋 لیست کل فایل‌های این ریلیز جهت بررسی:"
-            curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/xjasonlyu/tun2socks/releases/latest | jq -r '.assets[].name'
+            echo "❌ خطا: نتوانستم فایل tun2socks-linux-arm64.zip را پیدا کنم!"
             exit 1
           fi
           
@@ -38,7 +35,6 @@ jobs:
           unzip -o tun2socks.zip -d tun2socks_extracted
           
           echo "⚙️ انتقال و تغییر نام به ساختار نیتیو اندروید..."
-          # پیدا کردن خود فایل باینری درون پوشه استخراج شده و انتقال آن
           find tun2socks_extracted -type f \( -name "*tun2socks*" -o -name "tun2socks" \) -exec mv {} app/src/main/jniLibs/arm64-v8a/libtun2socks.so \;
           chmod +x app/src/main/jniLibs/arm64-v8a/libtun2socks.so
           

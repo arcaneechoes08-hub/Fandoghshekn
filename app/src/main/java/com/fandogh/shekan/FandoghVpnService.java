@@ -86,7 +86,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
             String[] cmd = {xrayBin.getAbsolutePath(), "run", "-config", new File(baseDir, "config.json").getAbsolutePath()};
             mXrayProcess = Runtime.getRuntime().exec(cmd);
             
-            // ذخیره آنلاین ارورهای هسته برای نمایش به کاربر در صورت کرش
             final StringBuilder xrayErrors = new StringBuilder();
             Thread errorReader = new Thread(() -> {
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(mXrayProcess.getErrorStream()))) {
@@ -98,18 +97,16 @@ public class FandoghVpnService extends VpnService implements Runnable {
             });
             errorReader.start();
 
-            // ۱.۵ ثانیه صبر می‌کنیم تا ببینیم هسته پایدار می‌ماند یا فوراً کرش می‌کند
             Thread.sleep(1500);
             try {
                 int exitCode = mXrayProcess.exitValue();
-                // اگر به این خط برسیم یعنی هسته زنده نمانده و متوقف شده است
                 String coreError = xrayErrors.toString().trim();
                 if (coreError.isEmpty()) {
-                    coreError = "هسته بدون لاگ متوقف شد. کد خروج: " + exitCode;
+                    coreError = "هسته متوقف شد. کد خروج: " + exitCode;
                 }
                 throw new Exception(coreError);
             } catch (IllegalThreadStateException e) {
-                // این یعنی فرآیند هسته با موفقیت در حال اجراست و کرش نکرده است
+                // هسته با موفقیت در حال اجراست
             }
 
             while (mThread != null && !mThread.isInterrupted()) {
@@ -132,26 +129,71 @@ public class FandoghVpnService extends VpnService implements Runnable {
         String[] querySplit = mainPart.split("\\?", 2);
         String credentialsAndServer = querySplit[0];
         String queryString = querySplit.length > 1 ? querySplit[1] : "";
+        
         int atIdx = credentialsAndServer.lastIndexOf("@");
         if (atIdx == -1) throw new Exception("فرمت کانفیگ اشتباه است (@ ندارد)");
         String uuid = credentialsAndServer.substring(0, atIdx);
         String serverPart = credentialsAndServer.substring(atIdx + 1);
+        
         int colonIdx = serverPart.lastIndexOf(":");
         if (colonIdx == -1) throw new Exception("پورت سرور پیدا نشد");
         String host = serverPart.substring(0, colonIdx).trim();
         int port = Integer.parseInt(serverPart.substring(colonIdx + 1).trim());
-        Map<String, String> queryPairs = new HashMap<>();
+        
+        Map<String, String> params = new HashMap<>();
         if (!queryString.isEmpty()) {
             for (String pair : queryString.split("&")) {
                 int idx = pair.indexOf("=");
-                if (idx != -1) queryPairs.put(pair.substring(0, idx), pair.substring(idx + 1));
+                if (idx != -1) {
+                    params.put(pair.substring(0, idx), java.net.URLDecoder.decode(pair.substring(idx + 1), "UTF-8"));
+                }
             }
         }
-        String path = queryPairs.containsKey("path") ? java.net.URLDecoder.decode(queryPairs.get("path"), "UTF-8") : "/";
-        String sni = queryPairs.containsKey("host") ? queryPairs.get("host") : host;
         
+        String security = params.getOrDefault("security", "none");
+        String network = params.getOrDefault("type", "tcp");
+        String sni = params.getOrDefault("sni", params.getOrDefault("host", host));
+        String path = params.getOrDefault("path", "/");
+        String pbk = params.getOrDefault("pbk", "");
+        String sid = params.getOrDefault("sid", "");
+        String fp = params.getOrDefault("fp", "chrome");
+
+        // 🛠️ ساخت داینامیک بخش streamSettings بر اساس نوع کانفیگ ورودی شما
+        StringBuilder streamStr = new StringBuilder();
+        streamStr.append("{\n")
+                 .append("  \"network\": \"").append(network).append("\",\n")
+                 .append("  \"security\": \"").append(security).append("\"");
+
+        if ("reality".equals(security)) {
+            streamStr.append(",\n  \"realitySettings\": {\n")
+                     .append("    \"show\": false,\n")
+                     .append("    \"fingerprint\": \"").append(fp).append("\",\n")
+                     .append("    \"serverName\": \"").append(sni).append("\",\n")
+                     .append("    \"publicKey\": \"").append(pbk).append("\",\n")
+                     .append("    \"shortId\": \"").append(sid).append("\"\n")
+                     .append("  }");
+        } else if ("tls".equals(security)) {
+            streamStr.append(",\n  \"tlsSettings\": {\n")
+                     .append("    \"serverName\": \"").append(sni).append("\",\n")
+                     .append("    \"fingerprint\": \"").append(fp).append("\"\n")
+                     .append("  }");
+        }
+
+        if ("ws".equals(network)) {
+            streamStr.append(",\n  \"wsSettings\": {\n")
+                     .append("    \"path\": \"").append(path).append("\",\n")
+                     .append("    \"headers\": {\"Host\": \"").append(sni).append("\"}\n")
+                     .append("  }");
+        } else if ("grpc".equals(network)) {
+            String serviceName = params.getOrDefault("serviceName", "");
+            streamStr.append(",\n  \"grpcSettings\": {\n")
+                     .append("    \"serviceName\": \"").append(serviceName).append("\"\n")
+                     .append("  }");
+        }
+        streamStr.append("\n}");
+
         String json = "{\n" +
-                "  \"log\": {\"loglevel\": \"info\"},\n" +
+                "  \"log\": {\"loglevel\": \"warning\"},\n" +
                 "  \"inbounds\": [\n" +
                 "    {\"port\": 10808, \"protocol\": \"socks\", \"settings\": {\"auth\": \"noauth\", \"udp\": true}},\n" +
                 "    {\"port\": 10809, \"protocol\": \"http\", \"settings\": {}}\n" +
@@ -159,9 +201,10 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 "  \"outbounds\": [{\n" +
                 "    \"protocol\": \"vless\",\n" +
                 "    \"settings\": {\"vnext\": [{\"address\": \"" + host + "\", \"port\": " + port + ", \"users\": [{\"id\": \"" + uuid + "\", \"encryption\": \"none\"}]}]},\n" +
-                "    \"streamSettings\": {\"network\": \"ws\", \"security\": \"none\", \"wsSettings\": {\"path\": \"" + path + "\", \"headers\": {\"Host\": \"" + sni + "\"}}}\n" +
+                "    \"streamSettings\": " + streamStr.toString() + "\n" +
                 "  }]\n" +
                 "}";
+
         FileOutputStream fos = new FileOutputStream(new File(dir, "config.json"));
         fos.write(json.getBytes());
         fos.flush(); fos.close();

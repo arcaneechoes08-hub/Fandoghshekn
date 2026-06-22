@@ -1,6 +1,8 @@
 package com.fandogh.shekan;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.net.VpnService;
 import android.os.Bundle;
 import android.widget.Button;
 import android.widget.Toast;
@@ -63,16 +65,19 @@ public class MainActivity extends Activity {
             pingManager.checkTcpPing(host, port, new PingManager.PingCallback() {
                 @Override
                 public void onResult(long latencyMs) {
-                    btnConnect.setEnabled(true);
-                    btnConnect.setText("متصل شد (Ping: " + latencyMs + "ms) ⚡");
-                    btnConnect.setBackgroundColor(0xFF4CAF50); // سبز
-                    isConnected = true;
-                    Toast.makeText(MainActivity.this, "سرور زنده است!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "پینگ سرور: " + latencyMs + "ms", Toast.LENGTH_SHORT).show();
+                    // درخواست مجوز رسمی VPN از اندروید
+                    Intent intent = VpnService.prepare(MainActivity.this);
+                    if (intent != null) {
+                        startActivityForResult(intent, 0);
+                    } else {
+                        onActivityResult(0, RESULT_OK, null);
+                    }
                 }
 
                 @Override
                 public void onError(String error) {
-                    resetButton("سرور قطع است (Timeout)", 0xFFE91E63); // صورتی/قرمز
+                    resetButton("سرور قطع است (Timeout)", 0xFFE91E63);
                 }
             });
 
@@ -81,7 +86,27 @@ public class MainActivity extends Activity {
         }
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode == RESULT_OK) {
+            // کاربر تایید کرد، پس سرویس تونل رو استارت می‌زنیم
+            Intent intent = new Intent(this, FandoghVpnService.class);
+            startService(intent);
+            
+            btnConnect.setEnabled(true);
+            btnConnect.setText("فندق‌شکن فعال است 🛡️");
+            btnConnect.setBackgroundColor(0xFF4CAF50); // سبز
+            isConnected = true;
+        } else {
+            resetButton("عدم تایید مجوز VPN", 0xFFF44336);
+        }
+    }
+
     private void stopFandoghShekan() {
+        Intent intent = new Intent(this, FandoghVpnService.class);
+        intent.setAction("STOP");
+        startService(intent);
         resetButton("اتصال هوشمند", 0xFFFF9800); // نارنجی
     }
 

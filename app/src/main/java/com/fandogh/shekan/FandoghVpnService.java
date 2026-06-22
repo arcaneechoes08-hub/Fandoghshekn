@@ -8,7 +8,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -26,7 +25,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 stopVpn();
                 return START_NOT_STICKY;
             }
-            // دریافت لینک کانفیگ از اکتیویتی اصلی
             mVlessLink = intent.getStringExtra("VLESS_LINK");
         }
         
@@ -65,25 +63,27 @@ public class FandoghVpnService extends VpnService implements Runnable {
             }
             xrayBin.setExecutable(true, false);
 
-            // ۲. پارس کردن لینک VLESS و ساخت فایل config.json
+            // ۲. پارس کردن کاملاً دستی و ایمن لینک VLESS
             if (mVlessLink != null && mVlessLink.startsWith("vless://")) {
-                generateXrayConfig(mVlessLink, binDir);
+                generateXrayConfigManual(mVlessLink, binDir);
             } else {
-                Log.e(TAG, "لینک کانفیگ نامعتبر است یا دریافت نشد!");
+                Log.e(TAG, "لینک کانفیگ خالی یا نامعتبر است!");
                 return;
             }
 
-            // ۳. ایجاد تونل مجازی اینترنت (TUN Interface)
+            // ۳. ایجاد تونل مجازی اندروید با مهار لوپ ترافیکی
             Builder builder = new Builder();
             mInterface = builder.setSession("FandoghShekan")
                     .addAddress("10.0.0.2", 24)
                     .addDnsServer("8.8.8.8")
                     .addRoute("0.0.0.0", 0)
+                    // مستثنی کردن خود اپلیکیشن برای جلوگیری از قفل شدن فرآیند Xray
+                    .addDisallowedApplication(getPackageName())
                     .establish();
 
-            Log.i(TAG, "تونل هدایت ترافیک باز شد. پرتاب موتور Xray...");
+            Log.i(TAG, "چراغ سیستم‌عامل روشن شد. پرتاب موتور Xray...");
 
-            // ۴. اجرای باینری Xray در پس‌زمینه با کانفیگ ساخته شده
+            // ۴. اجرای فرآیند باینری Xray
             String[] cmd = {
                 xrayBin.getAbsolutePath(), 
                 "run", 
@@ -92,9 +92,8 @@ public class FandoghVpnService extends VpnService implements Runnable {
             };
             
             mXrayProcess = Runtime.getRuntime().exec(cmd);
-            Log.i(TAG, "🚀 موتور فندق‌شکن با موفقیت در لایه لینوکس روشن شد!");
+            Log.i(TAG, "🚀 موتور فندق‌شکن با موفقیت فعال شد!");
 
-            // زنده نگه داشتن تِرد سرویس
             while (mThread != null && !mThread.isInterrupted()) {
                 Thread.sleep(1000);
             }
@@ -105,25 +104,47 @@ public class FandoghVpnService extends VpnService implements Runnable {
         }
     }
 
-    private void generateXrayConfig(String link, File dir) throws Exception {
-        // یک پارسر دستی و سریع برای استخراج اجزای VLESS
-        URI uri = new URI(link.replace("#", "?hash="));
-        String uuid = uri.getUserInfo();
-        String host = uri.getHost();
-        int port = uri.getPort();
+    private void generateXrayConfigManual(String link, File dir) throws Exception {
+        // حذف پروتکل ابتدایی
+        String current = link.substring(8);
         
+        // جدا کردن فرگمنت انتهایی (#)
+        String[] hashSplit = current.split("#", 2);
+        String mainPart = hashSplit[0];
+        
+        // جدا کردن بخش پارامترها (؟)
+        String[] querySplit = mainPart.split("\\?", 2);
+        String credentialsAndServer = querySplit[0];
+        String queryString = querySplit.length > 1 ? querySplit[1] : "";
+        
+        // استخراج UUID و بخش سرور
+        int atIdx = credentialsAndServer.lastIndexOf("@");
+        if (atIdx == -1) throw new Exception("فرمت کاربری VLESS اشتباه است");
+        String uuid = credentialsAndServer.substring(0, atIdx);
+        String serverPart = credentialsAndServer.substring(atIdx + 1);
+        
+        // استخراج آی‌پي/هوست و پورت سرور
+        int colonIdx = serverPart.lastIndexOf(":");
+        if (colonIdx == -1) throw new Exception("پورت سرور یافت نشد");
+        String host = serverPart.substring(0, colonIdx).trim();
+        int port = Integer.parseInt(serverPart.substring(colonIdx + 1).trim());
+        
+        // استخراج اجزای تنظیمات شبکه
         Map<String, String> queryPairs = new HashMap<>();
-        String query = uri.getQuery();
-        String[] pairs = query.split("&");
-        for (String pair : pairs) {
-            int idx = pair.indexOf("=");
-            queryPairs.put(pair.substring(0, idx), pair.substring(idx + 1));
+        if (!queryString.isEmpty()) {
+            String[] pairs = queryString.split("&");
+            for (String pair : pairs) {
+                int idx = pair.indexOf("=");
+                if (idx != -1) {
+                    queryPairs.put(pair.substring(0, idx), pair.substring(idx + 1));
+                }
+            }
         }
 
         String path = queryPairs.containsKey("path") ? java.net.URLDecoder.decode(queryPairs.get("path"), "UTF-8") : "/";
         String sni = queryPairs.containsKey("host") ? queryPairs.get("host") : host;
 
-        // ساخت تمپلیت ساختاریافته‌ی JSON برای هسته Xray
+        // تزریق به بدنه ساختار استاندارد JSON
         String json = "{\n" +
                 "  \"log\": {\"loglevel\": \"warning\"},\n" +
                 "  \"inbounds\": [{\n" +
@@ -155,7 +176,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         FileOutputStream fos = new FileOutputStream(configFile);
         fos.write(json.getBytes());
         fos.flush(); fos.close();
-        Log.i(TAG, "فایل تنظیمات هسته (config.json) با موفقیت پخته شد.");
+        Log.i(TAG, "فایل تراز شده‌ی config.json با موفقیت مستقر شد.");
     }
 
     private void stopVpn() {
@@ -172,9 +193,9 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 mInterface.close();
                 mInterface = null;
             }
-            Log.i(TAG, "سیستم به حالت عادی برگشت.");
+            Log.i(TAG, "تونل با موفقیت تخلیه شد.");
         } catch (Exception e) {
-            Log.e(TAG, "خطا در تخلیه متغیرها: " + e.getMessage());
+            Log.e(TAG, "خطا در توقف: " + e.getMessage());
         }
     }
 }

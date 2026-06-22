@@ -95,7 +95,13 @@ public class MainActivity extends Activity {
             });
 
         } catch (Exception e) {
-            resetButton("خطا: " + e.getMessage(), 0xFFF44336);
+            // سیستم رادیولوژی: نمایش دلیل خطا به همراه ۲۵ کاراکتر اول متن دریافتی
+            String preview = "";
+            if (config != null) {
+                int end = Math.min(config.length(), 25);
+                preview = " -> [" + config.substring(0, end) + "]";
+            }
+            resetButton("خطا: " + e.getMessage() + preview, 0xFFF44336);
         }
     }
 

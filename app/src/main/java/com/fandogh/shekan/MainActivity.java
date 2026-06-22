@@ -53,7 +53,6 @@ public class MainActivity extends Activity {
 
     private void parseAndPing(String config) {
         try {
-            // ۱. پاکسازی کامل تمام فاصله‌ها و خطوط اضافه احتمالی از ابتدا و انتهای کانفیگ
             if (config == null) throw new Exception("کانفیگ خالی است");
             config = config.trim();
             
@@ -61,20 +60,14 @@ public class MainActivity extends Activity {
                 throw new Exception("لینک vless معتبر نیست");
             }
             
-            // ۲. حذف پروتکل ابتدایی
             String uriBody = config.substring(8); 
-            
-            // ۳. پیدا کردن علامت @ برای استخراج بخش سرور (از آخر به اول برای امنیت بیشتر)
             int atIndex = uriBody.lastIndexOf("@");
             if (atIndex == -1) throw new Exception("علامت @ پیدا نشد");
             
             String serverPart = uriBody.substring(atIndex + 1);
-            
-            // ۴. جدا کردن آدرس و پورت از بخش کوئری‌ها (مثل ?type=ws یا #remarks)
             String[] mainParts = serverPart.split("[?#]");
             String hostAndPort = mainParts[0];
             
-            // ۵. تفکیک Host و Port با پیدا کردن آخرین دو نقطه (:)
             int colonIndex = hostAndPort.lastIndexOf(":");
             if (colonIndex == -1) throw new Exception("پورت سرور پیدا نشد");
             
@@ -83,13 +76,10 @@ public class MainActivity extends Activity {
             
             int port = Integer.parseInt(portStr);
 
-            // شروع عملیات پینگ روی پورت و هاست استخراج شده
             pingManager.checkTcpPing(host, port, new PingManager.PingCallback() {
                 @Override
                 public void onResult(long latencyMs) {
                     Toast.makeText(MainActivity.this, "پینگ سرور: " + latencyMs + "ms", Toast.LENGTH_SHORT).show();
-                    
-                    // درخواست مجوز رسمی VPN از سیستم‌عامل
                     Intent intent = VpnService.prepare(MainActivity.this);
                     if (intent != null) {
                         startActivityForResult(intent, 0);
@@ -105,7 +95,6 @@ public class MainActivity extends Activity {
             });
 
         } catch (Exception e) {
-            // حالا اگر مشکلی پیش بیاید، دلیل دقیق را روی دکمه مینویسد تا بفهمیم ایراد کجاست
             resetButton("خطا: " + e.getMessage(), 0xFFF44336);
         }
     }

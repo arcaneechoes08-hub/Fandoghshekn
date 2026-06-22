@@ -14,8 +14,10 @@ import javax.crypto.spec.SecretKeySpec;
 
 public class ConfigManager {
 
-    // این دو مقدار را در قدم بعدی با نانو ویرایش می‌کنی:
-    private static final String GIST_RAW_URL = "https://gist.githubusercontent.com/arcaneechoes08-hub/97ed58c7ee1f162a7a0ae8608f08b25c/raw/70d01d72a367542d276e385b6fb6d914e504875a/%25D9%2584";
+    // ۱. لینک Raw گیت‌هاب خودت را اینجا بگذار
+    private static final String GIST_RAW_URL = "https://gist.githubusercontent.com/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt";
+    
+    // ۲. کلید اختصاصی ۱۶ کاراکتری (اصلاح شده)
     private static final String SECRET_KEY = "FandoghSecretKey"; 
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -29,14 +31,11 @@ public class ConfigManager {
     public void fetchAndDecryptConfig(ConfigCallback callback) {
         executor.execute(() -> {
             try {
-                if (GIST_RAW_URL.contains("لینک_RAW_گیت‌هاب")) {
-                    throw new Exception("تنظیمات ست نشده است");
-                }
                 URL url = new URL(GIST_RAW_URL);
                 HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                 connection.setRequestMethod("GET");
-                connection.setConnectTimeout(7000);
-                connection.setReadTimeout(7000);
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(5000);
 
                 int responseCode = connection.getResponseCode();
                 if (responseCode == HttpURLConnection.HTTP_OK) {
@@ -48,22 +47,26 @@ public class ConfigManager {
                     }
                     reader.close();
 
+                    // رمزگشایی پیشرفته AES
                     String decryptedConfig = decryptAES(response.toString().trim(), SECRET_KEY);
+
                     mainHandler.post(() -> callback.onSuccess(decryptedConfig));
                 } else {
-                    mainHandler.post(() -> callback.onError("کد سرور: " + responseCode));
+                    mainHandler.post(() -> callback.onError("خطا در ارتباط: " + responseCode));
                 }
             } catch (Exception e) {
-                mainHandler.post(() -> callback.onError("ارور توابع: " + e.getMessage()));
+                mainHandler.post(() -> callback.onError("خطا در رمزگشایی یا شبکه: " + e.getMessage()));
             }
         });
     }
 
     private String decryptAES(String encryptedText, String key) throws Exception {
         byte[] encryptedBytes = Base64.decode(encryptedText, Base64.DEFAULT);
+        
         SecretKeySpec secretKey = new SecretKeySpec(key.getBytes("UTF-8"), "AES");
         Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
         cipher.init(Cipher.DECRYPT_MODE, secretKey);
+        
         byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
         return new String(decryptedBytes, "UTF-8");
     }

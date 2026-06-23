@@ -1,5 +1,7 @@
 package com.fandogh.shekan;
 
+import com.v2ray.ang.R;
+
 import android.app.Activity;
 import android.content.Intent;
 import android.net.VpnService;

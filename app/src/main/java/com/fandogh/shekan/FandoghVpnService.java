@@ -31,6 +31,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         System.loadLibrary("native-lib");
     }
 
+        @androidx.annotation.Keep
     private native int startNativeCore(String config);
 
     @Override

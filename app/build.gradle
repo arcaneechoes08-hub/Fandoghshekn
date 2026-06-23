@@ -12,6 +12,9 @@ android {
     compileSdk 34
 
     defaultConfig {
+        ndk {
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
         applicationId "com.fandogh.shekan"
         minSdk 21
         targetSdk 34

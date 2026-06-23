@@ -2,6 +2,7 @@ package com.fandogh.shekan;
 
 import android.content.Intent;
 import android.net.VpnService;
+import android.os.Build;
 import android.os.Bundle;
 import android.widget.Button;
 import android.widget.Toast;
@@ -62,11 +63,16 @@ public class MainActivity extends AppCompatActivity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 512 && resultCode == RESULT_OK) {
             try {
-                // 🔌 بازگشت امن به سرویس اختصاصی فندق‌شکن
                 Intent vpnIntent = new Intent(this, FandoghVpnService.class);
                 vpnIntent.setAction("com.fandogh.shekan.START");
                 vpnIntent.putExtra("COMMAND_CONFIG", v2rayConfig);
-                startService(vpnIntent);
+                
+                // 🎯 حل ارور ۴: فراخوانی ایمن بر اساس پلتفرم سیستم‌عامل جهت جلوگیری از سکیوریتی اکسپشن
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(vpnIntent);
+                } else {
+                    startService(vpnIntent);
+                }
 
                 isConnected = true;
                 btnConnect.setText("متصل شد 🌰 (قطع اتصال)");
@@ -81,7 +87,11 @@ public class MainActivity extends AppCompatActivity {
         try {
             Intent vpnIntent = new Intent(this, FandoghVpnService.class);
             vpnIntent.setAction("com.fandogh.shekan.STOP");
-            startService(vpnIntent);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(vpnIntent);
+            } else {
+                startService(vpnIntent);
+            }
         } catch (Exception e) {
         }
         isConnected = false;

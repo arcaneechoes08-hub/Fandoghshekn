@@ -7,11 +7,15 @@ import android.content.Intent;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
+import android.system.Os;
 import android.util.Log;
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 
 public class FandoghVpnService extends VpnService implements Runnable {
 
@@ -36,7 +40,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
             if ("com.fandogh.shekan.START".equals(action)) {
                 v2rayConfig = intent.getStringExtra("COMMAND_CONFIG");
 
-                // 🔔 بیدار کردن فورگراند سرویس برای نمایش قطعی آیکون کلید در استاتوس‌بار
                 startServiceForeground();
 
                 if (mThread == null || !mThread.isAlive()) {
@@ -51,7 +54,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
     }
 
     private void startServiceForeground() {
-        // ساخت کانال نوتیفیکیشن برای اندرویدهای ۸ به بالا
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
@@ -64,27 +66,54 @@ public class FandoghVpnService extends VpnService implements Runnable {
             }
         }
 
-        Notification.Builder builder;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            builder = new Notification.Builder(this, CHANNEL_ID);
-        } else {
-            builder = new Notification.Builder(this);
-        }
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O 
+                ? new Notification.Builder(this, CHANNEL_ID) 
+                : new Notification.Builder(this);
 
-        // تنظیمات ظاهری نوتیفیکیشن اتصال
         Notification notification = builder
                 .setContentTitle("فندق‌شکن 🌰")
                 .setContentText("اتصال امن برقرار است و ترافیک هدایت می‌شود.")
-                .setSmallIcon(android.R.drawable.sym_def_app_icon) // استفاده از آیکون سیستم جهت امنیت در کامپایل
+                .setSmallIcon(android.R.drawable.sym_def_app_icon)
                 .build();
 
-        // اعلام رسمی به اندروید: من یک VPN فعال و زنده هستم!
         startForeground(1, notification);
+    }
+
+    // 📂 متد استخراج منابع مسیریابی از Assets به محیط محلی قابل خواندن توسط کامپایلر لینوکس
+    private void extractAssetsIfNeeded() {
+        String[] assetFiles = {"geoip.dat", "geosite.dat"};
+        File cacheDir = getFilesDir();
+        for (String fileName : assetFiles) {
+            File targetFile = new File(cacheDir, fileName);
+            if (!targetFile.exists()) {
+                try (InputStream in = getAssets().open(fileName);
+                     OutputStream out = new FileOutputStream(targetFile)) {
+                    byte[] buffer = new byte[1024 * 4];
+                    int read;
+                    while ((read = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, read);
+                    }
+                    Log.i(TAG, "📦 فایل با موفقیت استخراج شد: " + fileName);
+                } catch (IOException e) {
+                    Log.e(TAG, "خطا در استخراج فایل اسست: " + fileName, e);
+                }
+            }
+        }
     }
 
     @Override
     public void run() {
         try {
+            // ۱. حل ارور ۱ و ۲: استخراج کامپوننت‌های روتینگ و تزریق کانکشن به متغیرهای محیطی سیستم‌عامل
+            extractAssetsIfNeeded();
+            String assetPath = getFilesDir().getAbsolutePath();
+            try {
+                Os.setenv("XRAY_LOCATION_ASSET", assetPath, true);
+                Os.setenv("V2RAY_LOCATION_ASSET", assetPath, true);
+            } catch (Exception e) {
+                Log.e(TAG, "موفق به ست کردن محیط آست‌ها نشدیم", e);
+            }
+
             Log.i(TAG, "🚀 [Engine] در حال استارت هسته نیتیو V2Ray در ترد پس‌زمینه...");
             if (v2rayConfig != null && !v2rayConfig.isEmpty()) {
                 new Thread(() -> {
@@ -104,7 +133,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     .addAddress("10.0.0.1", 24)
                     .addRoute("0.0.0.0", 0)
                     .addDnsServer("1.1.1.1")
-                    .addDisallowedApplication(getPackageName()) // شکستن حلقه لوپ روتینگ
+                    .addDisallowedApplication(getPackageName())
                     .establish();
 
             if (mInterface == null) {
@@ -123,10 +152,13 @@ public class FandoghVpnService extends VpnService implements Runnable {
             }
 
             int vpnFd = mInterface.getFd();
+            
+            // 🎯 حل ارور ۳: پاس دادن مستقیم حجم بسته (-mtu 1500) برای جلوگیری از تداخل امنیتی
             ProcessBuilder pb = new ProcessBuilder(
                     tun2socksPath,
                     "-device", "fd://" + vpnFd,
-                    "-proxy", "socks5://127.0.0.1:10808"
+                    "-proxy", "socks5://127.0.0.1:10808",
+                    "-mtu", "1500"
             );
 
             pb.redirectErrorStream(true);
@@ -143,8 +175,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
         } catch (Exception e) {
             Log.e(TAG, "❌ [Exception] خطا در چرخه حیات تانلینگ: " + e.getMessage());
-        } catch (Throwable t) {
-            Log.e(TAG, "❌ [Throwable] خطای پیش‌بینی نشده: " + t.getMessage());
         } finally {
             stopVpn();
         }
@@ -172,7 +202,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
             mThread = null;
         }
 
-        // پاک کردن نوتیفیکیشن و خروج از حالت فورگراند
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE);
         } else {

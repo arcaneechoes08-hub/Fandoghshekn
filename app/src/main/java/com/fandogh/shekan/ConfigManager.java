@@ -3,7 +3,6 @@ package com.fandogh.shekan;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Base64;
-import android.util.Log;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -29,11 +28,18 @@ public class ConfigManager {
     public void fetchAndDecryptConfig(ConfigCallback callback) {
         executor.execute(() -> {
             try {
-                URL url = new URL(GIST_RAW_URL);
+                // رفرش لایه شبکه با تغییر دائم آدرس درخواست با استفاده از زمان جاری سیستم
+                String freshUrl = GIST_RAW_URL + "?nocache=" + System.currentTimeMillis();
+                URL url = new URL(freshUrl);
                 HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(8000);
                 connection.setReadTimeout(8000);
+                
+                // اصلاح باگ نگارشی قبلی برای غیرفعال کردن قطعی کش در لینوکس و اندروید
+                connection.setUseCaches(false); 
+                connection.setRequestProperty("Cache-Control", "no-cache");
+                connection.setRequestProperty("Pragma", "no-cache");
 
                 int responseCode = connection.getResponseCode();
                 if (responseCode == HttpURLConnection.HTTP_OK) {
@@ -46,31 +52,21 @@ public class ConfigManager {
                     reader.close();
 
                     String rawData = response.toString().trim();
-                    if (rawData.isEmpty()) {
-                        mainHandler.post(() -> callback.onError("خطا: دیتای دریافت شده از سرور خالی است."));
-                        return;
-                    }
-
-                    // رمزگشایی ایمن
                     String decryptedConfig = decryptAES(rawData, SECRET_KEY);
                     mainHandler.post(() -> callback.onSuccess(decryptedConfig));
                 } else {
-                    mainHandler.post(() -> callback.onError("خطا در ارتباط با گیت‌هاب. کد: " + responseCode));
+                    mainHandler.post(() -> callback.onError("خطا در ارتباط: " + responseCode));
                 }
             } catch (javax.crypto.BadPaddingException | javax.crypto.IllegalBlockSizeException ae) {
-                mainHandler.post(() -> callback.onError("خطا در رمزگشایی: کلید نامعتبر یا دیتای جیست اشتباه است."));
-            } catch (IllegalArgumentException be) {
-                mainHandler.post(() -> callback.onError("خطا: ساختار دیتای جیست Base64 معتبر نیست."));
+                mainHandler.post(() -> callback.onError("خطا در رمزگشایی: کلید نامعتبر یا دیتای جیست اشتباه است"));
             } catch (Exception e) {
-                mainHandler.post(() -> callback.onError("خطا در شبکه یا اینترنت گوشی: " + e.getLocalizedMessage()));
+                mainHandler.post(() -> callback.onError("خطا در شبکه یا اینترنت گوشی"));
             }
         });
     }
 
     private String decryptAES(String encryptedText, String key) throws Exception {
-        // حذف تمام اینترها، اسپیس‌ها و کاراکترهای مخفی ورودی برای سازگاری کامل با جاوا ۸
         String cleanText = encryptedText.replaceAll("[\\n\\r\\s]+", "");
-        
         byte[] encryptedBytes = Base64.decode(cleanText, Base64.DEFAULT);
         
         SecretKeySpec secretKey = new SecretKeySpec(key.getBytes("UTF-8"), "AES");

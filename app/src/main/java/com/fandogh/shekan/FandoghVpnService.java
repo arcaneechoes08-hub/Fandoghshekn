@@ -27,9 +27,9 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
     private static final String TAG = "FandoghCore";
     private static final String LOG_TAG_TUN = "FandoghTun2Socks";
-    private static final String CHANNEL_ID = "FandoghVpnChannel";
+    private static final String CHANNEL_ID = "vpn_channel"; // هماهنگ با چنل رسمی تحلیل جدید
     private Thread mThread;
-    private ParcelFileDescriptor mInterface;
+    private ParcelFileDescriptor mInterface = null; // مقداردهی اولیه امن برای جلوگیری از کرش
     private Process mTun2SocksProcess;
     private String v2rayConfig = "";
 
@@ -45,7 +45,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
     @androidx.annotation.Keep
     private native int startNativeCore(String config);
 
-    // 🔑 حل مشکل شماره ۱ (حیاتی): کالبک JNI جهت اجرای پروتکت روی سوکت خروجی هسته و ریشه‌کنی لوپ ترافیک
     @androidx.annotation.Keep
     public boolean protectSocket(int fd) {
         boolean result = protect(fd);
@@ -63,6 +62,8 @@ public class FandoghVpnService extends VpnService implements Runnable {
             String action = intent.getAction();
             if ("com.fandogh.shekan.START".equals(action)) {
                 v2rayConfig = intent.getStringExtra("COMMAND_CONFIG");
+                
+                // 🚨 گام اورژانسی ۱: انتقال فوری سرویس به Foreground قبل از تشکیل تانل برای زنده کردن آیکون کلید
                 startServiceForeground();
                 acquireWakeLock();
                 registerNetworkTracker();
@@ -91,25 +92,24 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 : new Notification.Builder(this);
 
         Notification notification = builder
-                .setContentTitle("فندق‌شکن 🌰")
-                .setContentText("اتصال امن لایه هسته برقرار است.")
-                .setSmallIcon(android.R.drawable.sym_def_app_icon)
+                .setContentTitle("Fandogh Shekan")
+                .setContentText("در حال اتصال و برقراری تونل امن هسته...")
+                .setSmallIcon(android.R.drawable.ic_lock_lock) // استفاده از آیکون پیش‌فرض سیستم جهت پایداری سورس
                 .build();
 
         startForeground(1, notification);
+        Log.i(TAG, "🛡️ سرویس به صورت Foreground معرفی شد. تخصیص کلید سیستم عامل در صف اجراست.");
     }
 
-    // 🔋 حل مشکل شماره ۶: گرفتن قفل پردازنده جهت ممانعت از فریز شدن در خواب عمیق گوشی (Doze Mode)
     private void acquireWakeLock() {
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (pm != null && wakeLock == null) {
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Fandogh::VpnWakeLock");
-            wakeLock.acquire(10*60*1000L); // تمدید امن ده دقیقه‌ای
+            wakeLock.acquire(10*60*1000L);
             Log.i(TAG, "🔋 لایه WakeLock فعال شد.");
         }
     }
 
-    // 📡 حل مشکل شماره ۵: ردیابی و مدیریت هوشمند ترافیک موقع سوییچ بین Wi-Fi و اینترنت همراه
     private void registerNetworkTracker() {
         connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkRequest request = new NetworkRequest.Builder()
@@ -171,17 +171,22 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 }, "FandoghV2RayCore").start();
             }
 
+            // 🚨 گام اورژانسی ۲: استقرار امن اینترفیس سیستمی بعد از معرفی موتیفیکیشن پیش‌زمینه
             VpnService.Builder builder = new VpnService.Builder();
-            // 📐 حل مشکل شماره ۳ و ۴: کاهش MTU به ۱۳۵۰ برای پایداری پکت‌ها + ست کردن DNS کلودفلر
             mInterface = builder.setSession("FandoghShekan")
                     .setMtu(1350)
                     .addAddress("10.0.0.1", 24)
-                    .addRoute("0.0.0.0", 0)
+                    .addRoute("0.0.0.0", 0) // اکنون به دلیل تایید هویت سرویس، کرنل اندروید این روت را فعال می‌کند
                     .addDnsServer("1.1.1.1")
                     .addDisallowedApplication(getPackageName())
                     .establish();
 
-            if (mInterface == null) return;
+            if (mInterface == null) {
+                Log.e(TAG, "❌ خطا! سیستم‌عامل اجازه ایجاد دسکریپتور تانل را صادر نکرد.");
+                return;
+            }
+
+            Log.i(TAG, "✅ تونل سیستمی مستقر شد و ترافیک به سمت لایه لینوکس هدایت می‌شود.");
 
             String nativeLibDir = getApplicationInfo().nativeLibraryDir;
             String tun2socksPath = nativeLibDir + "/libtun2socks.so";
@@ -205,20 +210,33 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
         } catch (Exception e) {
             Log.e(TAG, "خطای چرخه شبکه: " + e.getMessage());
+        } catch (Throwable t) {
+            Log.e(TAG, "خطای غیرمنتظره لایه سخت‌افزار", t);
         } finally {
             stopVpn();
         }
     }
 
+    // 🚨 گام اورژانسی ۳: پروتکل خروج ایمن (Teardown) برای ممانعت کامل از خطاهای NullPointer و Bad File Descriptor
     private void stopVpn() {
+        Log.i(TAG, "🛑 شروع پاک‌سازی لایه‌های حافظه و بستن امن تانل...");
+        
         if (mTun2SocksProcess != null) {
             mTun2SocksProcess.destroy();
             mTun2SocksProcess = null;
         }
+
+        // بررسی شرط حیاتی برای جلوگیری از کرش هنگام قطع اتصال
         if (mInterface != null) {
-            try { mInterface.close(); } catch (IOException e) {}
-            mInterface = null;
+            try { 
+                mInterface.close(); 
+                Log.d(TAG, "✅ فایل دسکریپتور تانل با موفقیت بسته شد.");
+            } catch (IOException e) {
+                Log.e(TAG, "خطای خاموش در بستن دسکریپتور سیستم‌عامل", e);
+            }
+            mInterface = null; // نال کردن مرجع جهت تخلیه کامل حافظه رم
         }
+
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
             wakeLock = null;
@@ -230,6 +248,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
             mThread.interrupt();
             mThread = null;
         }
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE);
         } else {

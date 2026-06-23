@@ -16,6 +16,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
     private Thread mThread;
     private ParcelFileDescriptor mInterface;
     private Process mTun2SocksProcess;
+    private String v2rayConfig = "";
 
     static {
         System.loadLibrary("native-lib");
@@ -28,9 +29,8 @@ public class FandoghVpnService extends VpnService implements Runnable {
         if (intent != null) {
             String action = intent.getAction();
             if ("com.fandogh.shekan.START".equals(action)) {
-                String config = intent.getStringExtra("COMMAND_CONFIG");
-                startNativeCore(config);
-                
+                v2rayConfig = intent.getStringExtra("COMMAND_CONFIG");
+
                 if (mThread == null || !mThread.isAlive()) {
                     mThread = new Thread(this, "FandoghVPNThread");
                     mThread.start();
@@ -45,8 +45,20 @@ public class FandoghVpnService extends VpnService implements Runnable {
     @Override
     public void run() {
         try {
+            // 🚀 ۱. انتقال استارت هسته به ترد مستقل پس‌زمینه جهت جلوگیری از فریز شدن UI
+            Log.i(TAG, "🚀 [Engine] در حال استارت هسته نیتیو V2Ray در ترد پس‌زمینه...");
+            if (v2rayConfig != null && !v2rayConfig.isEmpty()) {
+                new Thread(() -> {
+                    try {
+                        startNativeCore(v2rayConfig);
+                    } catch (Exception e) {
+                        Log.e(TAG, "خطا در اجرای داخلی هسته نیتیو: " + e.getMessage());
+                    }
+                }, "FandoghV2RayCore").start();
+            }
+
             Log.i(TAG, "🔧 [System] در حال پیکربندی کارت شبکه مجازی فندق...");
-            
+
             VpnService.Builder builder = new VpnService.Builder();
             mInterface = builder.setSession("FandoghShekan")
                     .setMtu(1500)
@@ -55,7 +67,12 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     .addDnsServer("1.1.1.1")
                     .establish();
 
-            Log.i(TAG, "✅ [System] کارت شبکه tun0 با موفقیت ایجاد و فعال شد.");
+            if (mInterface == null) {
+                Log.e(TAG, "❌ [Fatal] موفق به ایجاد اینترفیس VpnService نشدیم.");
+                return;
+            }
+
+            Log.i(TAG, "✅ [System] کارت شبکه با موفقیت ایجاد شد. FD: " + mInterface.getFd());
 
             String nativeLibDir = getApplicationInfo().nativeLibraryDir;
             String tun2socksPath = nativeLibDir + "/libtun2socks.so";
@@ -65,27 +82,27 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 return;
             }
 
-            // آماده‌سازی دستور با تفکیک دقیق پارامترها
+            // 🎯 ۲. حل مشکل بن‌بست ترافیک با دور زدن نام دیوایس و ارسال مستقیم File Descriptor
+            int vpnFd = mInterface.getFd();
+
+            // توجه: اکثر نسخه‌های اندرویدی tun2socks فرمت fd:// را می‌پذیرند.
+            // اگر بعداً در لاگ ارور Invalid argument دیدی، می‌توانی این بخش را به "-tunFd", String.valueOf(vpnFd) تغییر دهی.
             ProcessBuilder pb = new ProcessBuilder(
                     tun2socksPath,
-                    "-device", "tun0",
+                    "-device", "fd://" + vpnFd,
                     "-proxy", "socks5://127.0.0.1:10808"
             );
-            
-            // ادغام کانال ارور و خروجی عادی برای مدیریت یکپارچه لاگ‌ها
+
             pb.redirectErrorStream(true);
             mTun2SocksProcess = pb.start();
             Log.i(TAG, "🚀 [Engine] موتور باینری Tun2Socks در پس‌زمینه بیدار شد.");
 
-            // 🎯 مرتب‌سازی و خواندن زنده لاگ‌های هسته نیتیو
             BufferedReader reader = new BufferedReader(new InputStreamReader(mTun2SocksProcess.getInputStream()));
             String logLine;
             while ((logLine = reader.readLine()) != null) {
-                // ارسال مستقیم تمام رویدادهای شبکه به سیستم لاگ‌کت اندروید با تگ اختصاصی
                 Log.d(LOG_TAG_TUN, "📋 " + logLine);
             }
 
-            // انتظار برای پایان پروسس در صورت توقف خودخواسته
             mTun2SocksProcess.waitFor();
 
         } catch (Exception e) {
@@ -97,12 +114,12 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
     private void stopVpn() {
         Log.i(TAG, "🛑 [System] در حال متوقف‌سازی فندق‌شکن و پاکسازی ترافیک...");
-        
+
         if (mTun2SocksProcess != null) {
             mTun2SocksProcess.destroy();
             mTun2SocksProcess = null;
         }
-        
+
         if (mInterface != null) {
             try {
                 mInterface.close();
@@ -111,12 +128,12 @@ public class FandoghVpnService extends VpnService implements Runnable {
             }
             mInterface = null;
         }
-        
+
         if (mThread != null) {
             mThread.interrupt();
             mThread = null;
         }
-        
+
         stopSelf();
     }
 

@@ -7,9 +7,9 @@ import android.widget.Button;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.v2ray.ang.R;
+import com.fandogh.shekan.R;
 // وارد کردن مدیریت سرویس‌های V2Ray
-import com.v2ray.ang.utils.V2rayConfigUtil;
+
 
 public class MainActivity extends AppCompatActivity {
 

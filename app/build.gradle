@@ -8,7 +8,7 @@ android {
             path "src/main/cpp/CMakeLists.txt"
         }
     }
-    namespace "com.v2ray.ang"
+    namespace "com.fandogh.shekan"
     compileSdk 34
 
     defaultConfig {

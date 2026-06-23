@@ -51,7 +51,8 @@ public class FandoghVpnService extends VpnService {
             startForeground(NOTIFICATION_ID, notification);
             Log.d(TAG, "Foreground service started.");
 
-            VpnService.Builder builder = new VpnService.Builder(this);
+            // ✅ اصلاح خط ۵۴: حذف آرگومان extra از بیلدر اصلی سیستم‌عامل
+            VpnService.Builder builder = new VpnService.Builder();
             builder.setMtu(1350);
             builder.addAddress("10.0.0.1", 24);
             builder.addRoute("0.0.0.0", 0);
@@ -68,7 +69,8 @@ public class FandoghVpnService extends VpnService {
             final int tunFd = vpnInterface.getFd();
             Log.d(TAG, "VPN interface established with FD: " + tunFd);
 
-            final String configJson = ConfigManager.getDecryptedConfig(this);
+            // ✅ ارجاع کانتکست صحیح به منیجر کانفیگ‌ها
+            final String configJson = ConfigManager.getDecryptedConfig(getApplicationContext());
             if (configJson == null || configJson.isEmpty()) {
                 Log.e(TAG, "Config is null or empty.");
                 new Thread(this::stopVpn).start();

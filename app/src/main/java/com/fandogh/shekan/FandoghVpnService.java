@@ -1,7 +1,11 @@
 package com.fandogh.shekan;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Intent;
 import android.net.VpnService;
+import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 import java.io.BufferedReader;
@@ -13,6 +17,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
     private static final String TAG = "FandoghCore";
     private static final String LOG_TAG_TUN = "FandoghTun2Socks";
+    private static final String CHANNEL_ID = "FandoghVpnChannel";
     private Thread mThread;
     private ParcelFileDescriptor mInterface;
     private Process mTun2SocksProcess;
@@ -31,6 +36,9 @@ public class FandoghVpnService extends VpnService implements Runnable {
             if ("com.fandogh.shekan.START".equals(action)) {
                 v2rayConfig = intent.getStringExtra("COMMAND_CONFIG");
 
+                // 🔔 بیدار کردن فورگراند سرویس برای نمایش قطعی آیکون کلید در استاتوس‌بار
+                startServiceForeground();
+
                 if (mThread == null || !mThread.isAlive()) {
                     mThread = new Thread(this, "FandoghVPNThread");
                     mThread.start();
@@ -42,10 +50,41 @@ public class FandoghVpnService extends VpnService implements Runnable {
         return START_STICKY;
     }
 
+    private void startServiceForeground() {
+        // ساخت کانال نوتیفیکیشن برای اندرویدهای ۸ به بالا
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "Fandogh VPN Service",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
+
+        Notification.Builder builder;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder = new Notification.Builder(this, CHANNEL_ID);
+        } else {
+            builder = new Notification.Builder(this);
+        }
+
+        // تنظیمات ظاهری نوتیفیکیشن اتصال
+        Notification notification = builder
+                .setContentTitle("فندق‌شکن 🌰")
+                .setContentText("اتصال امن برقرار است و ترافیک هدایت می‌شود.")
+                .setSmallIcon(android.R.drawable.sym_def_app_icon) // استفاده از آیکون سیستم جهت امنیت در کامپایل
+                .build();
+
+        // اعلام رسمی به اندروید: من یک VPN فعال و زنده هستم!
+        startForeground(1, notification);
+    }
+
     @Override
     public void run() {
         try {
-            // 🚀 ۱. انتقال استارت هسته به ترد مستقل پس‌زمینه جهت جلوگیری از فریز شدن UI
             Log.i(TAG, "🚀 [Engine] در حال استارت هسته نیتیو V2Ray در ترد پس‌زمینه...");
             if (v2rayConfig != null && !v2rayConfig.isEmpty()) {
                 new Thread(() -> {
@@ -65,6 +104,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     .addAddress("10.0.0.1", 24)
                     .addRoute("0.0.0.0", 0)
                     .addDnsServer("1.1.1.1")
+                    .addDisallowedApplication(getPackageName()) // شکستن حلقه لوپ روتینگ
                     .establish();
 
             if (mInterface == null) {
@@ -82,11 +122,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 return;
             }
 
-            // 🎯 ۲. حل مشکل بن‌بست ترافیک با دور زدن نام دیوایس و ارسال مستقیم File Descriptor
             int vpnFd = mInterface.getFd();
-
-            // توجه: اکثر نسخه‌های اندرویدی tun2socks فرمت fd:// را می‌پذیرند.
-            // اگر بعداً در لاگ ارور Invalid argument دیدی، می‌توانی این بخش را به "-tunFd", String.valueOf(vpnFd) تغییر دهی.
             ProcessBuilder pb = new ProcessBuilder(
                     tun2socksPath,
                     "-device", "fd://" + vpnFd,
@@ -107,6 +143,8 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
         } catch (Exception e) {
             Log.e(TAG, "❌ [Exception] خطا در چرخه حیات تانلینگ: " + e.getMessage());
+        } catch (Throwable t) {
+            Log.e(TAG, "❌ [Throwable] خطای پیش‌بینی نشده: " + t.getMessage());
         } finally {
             stopVpn();
         }
@@ -134,6 +172,12 @@ public class FandoghVpnService extends VpnService implements Runnable {
             mThread = null;
         }
 
+        // پاک کردن نوتیفیکیشن و خروج از حالت فورگراند
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+        } else {
+            stopForeground(true);
+        }
         stopSelf();
     }
 

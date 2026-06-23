@@ -1,141 +1,72 @@
 package com.fandogh.shekan;
 
-import android.app.Activity;
 import android.content.Intent;
-import android.net.VpnService;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
+import androidx.appcompat.app.AppCompatActivity;
 
-public class MainActivity extends Activity {
-    private boolean isConnected = false;
-    private Button btnConnect;
-    private ConfigManager configManager;
-    private PingManager pingManager;
-    // متغیر جدید برای ذخیره کانفیگ در سطح کل کلاس
-    private String mDecryptedConfig;
-
+public class MainActivity extends AppCompatActivity {
+    
+    private EditText configInput;
+    private Button connectButton;
+    private Button disconnectButton;
+    private TextView statusText;
+    private SharedPreferences sharedPreferences;
+    private static final String PREF_NAME = "FandoghPrefs";
+    private static final String CONFIG_KEY = "vpn_config";
+    
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
-        btnConnect = findViewById(R.id.btnConnect);
-        configManager = new ConfigManager();
-        pingManager = new PingManager();
-
-        btnConnect.setOnClickListener(v -> {
-            if (!isConnected) {
-                startFetchingConfig();
-            } else {
-                stopFandoghShekan();
-            }
-        });
+        
+        // Initialize views
+        configInput = findViewById(R.id.configInput);
+        connectButton = findViewById(R.id.connectButton);
+        disconnectButton = findViewById(R.id.disconnectButton);
+        statusText = findViewById(R.id.statusText);
+        
+        // Initialize SharedPreferences for secure storage
+        sharedPreferences = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        
+        // Set up button listeners
+        connectButton.setOnClickListener(v -> connectVPN());
+        disconnectButton.setOnClickListener(v -> disconnectVPN());
     }
-
-    private void startFetchingConfig() {
-        btnConnect.setText("در حال دریافت کانفیگ...");
-        btnConnect.setBackgroundColor(0xFF2196F3);
-        btnConnect.setEnabled(false);
-
-        configManager.fetchAndDecryptConfig(new ConfigManager.ConfigCallback() {
-            @Override
-            public void onSuccess(String decryptedConfig) {
-                btnConnect.setText("در حال تست پینگ سرور...");
-                parseAndPing(decryptedConfig);
-            }
-
-            @Override
-            public void onError(String error) {
-                resetButton(error, 0xFFF44336);
-            }
-        });
-    }
-
-    private void parseAndPing(String config) {
-        try {
-            if (config == null) throw new Exception("کانفیگ خالی است");
-            config = config.trim();
-
-            if (!config.startsWith("vless://")) {
-                throw new Exception("لینک vless معتبر نیست");
-            }
-
-            // ذخیره کانفیگ در متغیر کلاس برای استفاده در زمان روشن شدن VPN
-            this.mDecryptedConfig = config;
-
-            String uriBody = config.substring(8);
-            int atIndex = uriBody.lastIndexOf("@");
-            if (atIndex == -1) throw new Exception("علامت @ پیدا نشد");
-
-            String serverPart = uriBody.substring(atIndex + 1);
-            String[] mainParts = serverPart.split("[?#]");
-            String hostAndPort = mainParts[0];
-
-            int colonIndex = hostAndPort.lastIndexOf(":");
-            if (colonIndex == -1) throw new Exception("پورت سرور پیدا نشد");
-
-            String host = hostAndPort.substring(0, colonIndex).trim();
-            String portStr = hostAndPort.substring(colonIndex + 1).trim();
-            int port = Integer.parseInt(portStr);
-
-            pingManager.checkTcpPing(host, port, new PingManager.PingCallback() {
-                @Override
-                public void onResult(long latencyMs) {
-                    Toast.makeText(MainActivity.this, "پینگ سرور: " + latencyMs + "ms", Toast.LENGTH_SHORT).show();
-                    Intent intent = VpnService.prepare(MainActivity.this);
-                    if (intent != null) {
-                        startActivityForResult(intent, 0);
-                    } else {
-                        onActivityResult(0, RESULT_OK, null);
-                    }
-                }
-
-                @Override
-                public void onError(String error) {
-                    resetButton("سرور قطع است (Timeout)", 0xFFE91E63);
-                }
-            });
-
-        } catch (Exception e) {
-            String preview = "";
-            if (config != null) {
-                int end = Math.min(config.length(), 25);
-                preview = " -> [" + config.substring(0, end) + "]";
-            }
-            resetButton("خطا: " + e.getMessage() + preview, 0xFFF44336);
+    
+    private void connectVPN() {
+        String config = configInput.getText().toString().trim();
+        
+        if (config.isEmpty()) {
+            Toast.makeText(this, "لطفاً کانفیگ را وارد کنید", Toast.LENGTH_SHORT).show();
+            return;
         }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode == RESULT_OK) {
-            Intent intent = new Intent(this, FandoghVpnService.class);
-            // تزریق کانفیگ واقعی به داخل اینتنت سرویس
-            intent.putExtra("VLESS_LINK", mDecryptedConfig);
-            startService(intent);
-            
-            btnConnect.setEnabled(true);
-            btnConnect.setText("فندق‌شکن فعال است 🛡️");
-            btnConnect.setBackgroundColor(0xFF4CAF50);
-            isConnected = true;
-        } else {
-            resetButton("عدم تایید مجوز VPN", 0xFFF44336);
-        }
-    }
-
-    private void stopFandoghShekan() {
+        
+        // Store config securely (in real app, use encrypted storage)
+        SharedPreferences.Editor editor = sharedPreferences.edit();
+        editor.putString(CONFIG_KEY, config);
+        editor.apply();
+        
+        // Start VPN Service
         Intent intent = new Intent(this, FandoghVpnService.class);
-        intent.setAction("STOP");
+        intent.putExtra("config", config);
         startService(intent);
-        resetButton("اتصال هوشمند", 0xFFFF9800);
+        
+        statusText.setText("اتصال به VPN...");
+        statusText.setTextColor(getResources().getColor(android.R.color.holo_orange_dark));
+        Toast.makeText(this, "VPN در حال اتصال است", Toast.LENGTH_SHORT).show();
     }
-
-    private void resetButton(String text, int color) {
-        btnConnect.setEnabled(true);
-        btnConnect.setText(text);
-        btnConnect.setBackgroundColor(color);
-        isConnected = false;
+    
+    private void disconnectVPN() {
+        Intent intent = new Intent(this, FandoghVpnService.class);
+        stopService(intent);
+        
+        statusText.setText("قطع شده");
+        statusText.setTextColor(getResources().getColor(android.R.color.holo_red_dark));
+        Toast.makeText(this, "VPN قطع شد", Toast.LENGTH_SHORT).show();
     }
 }

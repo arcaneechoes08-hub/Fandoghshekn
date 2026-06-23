@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Fandogh-Shekan</string>
+    <string name="connect">اتصال</string>
+    <string name="disconnect">قطع</string>
+    <string name="status">وضعیت</string>
+    <string name="connected">متصل</string>
+    <string name="disconnected">قطع شده</string>
+</resources>

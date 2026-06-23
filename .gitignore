@@ -1,0 +1,43 @@
+# Gradle
+.gradle/
+build/
+
+# Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Compiled files
+*.class
+*.jar
+*.aar
+
+# Native build
+.cxx/
+
+# Local properties
+local.properties
+
+# Generated files
+*.apk
+*.ap_
+*.dex
+*.so
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Security
+config.properties
+secret_keys.txt

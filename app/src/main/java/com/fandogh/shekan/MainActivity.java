@@ -6,19 +6,13 @@ import android.os.Bundle;
 import android.widget.Button;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
 
 public class MainActivity extends AppCompatActivity {
 
     private Button btnConnect;
     private boolean isConnected = false;
     private String v2rayConfig = "";
-
-    // 🎯 آدرس گیت‌هاب گیست خودت را اینجا جایگزین کن (حتماً لینک Raw باشد)
-    private static final String GIST_URL = "https://gist.githubusercontent.com/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt";
+    private ConfigManager configManager;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -26,63 +20,35 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         btnConnect = findViewById(R.id.btnConnect);
+        configManager = new ConfigManager();
 
         btnConnect.setOnClickListener(v -> {
             if (!isConnected) {
                 btnConnect.setEnabled(false);
-                btnConnect.setText("در حال آماده‌سازی...");
+                btnConnect.setText("در حال رمزگشایی و اتصال...");
                 
-                // دریافت کانفیگ در پس‌زمینه بدون درگیر کردن UI اصلی
-                fetchConfigAndConnect();
+                // 🎯 فراخوانی شاهکار خودت: دانلود مخفی، دور زدن فیلترینگ و رمزگشایی AES
+                configManager.fetchAndDecryptConfig(new ConfigManager.ConfigCallback() {
+                    @Override
+                    public void onSuccess(String decryptedConfig) {
+                        v2rayConfig = decryptedConfig;
+                        btnConnect.setEnabled(true);
+                        
+                        // ورود به مرحله فعال‌سازی تانل شبکه با کانفیگ کاملاً رمزگشایی شده
+                        startFandoghVpn();
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        btnConnect.setEnabled(true);
+                        btnConnect.setText("اتصال به فندق‌شکن");
+                        Toast.makeText(MainActivity.this, "❌ " + error, Toast.LENGTH_LONG).show();
+                    }
+                });
             } else {
                 stopFandoghVpn();
             }
         });
-    }
-
-    private void fetchConfigAndConnect() {
-        new Thread(() -> {
-            try {
-                URL url = new URL(GIST_URL);
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                connection.setRequestMethod("GET");
-                connection.setConnectTimeout(5000);
-                connection.setReadTimeout(5000);
-
-                if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    StringBuilder result = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        result.append(line).append("\n");
-                    }
-                    reader.close();
-
-                    v2rayConfig = result.toString().trim();
-
-                    // برگشت به ترد اصلی برای استارت زدن وی‌پی‌ان
-                    runOnUiThread(() -> {
-                        btnConnect.setEnabled(true);
-                        if (!v2rayConfig.isEmpty()) {
-                            startFandoghVpn();
-                        } else {
-                            btnConnect.setText("اتصال به فندق‌شکن");
-                            Toast.makeText(MainActivity.this, "❌ کانفیگ دریافت شده خالی بود!", Toast.LENGTH_LONG).show();
-                        }
-                    });
-                } else {
-                    throw new Exception("خطای سرور: " + connection.getResponseCode());
-                }
-                connection.disconnect();
-
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    btnConnect.setEnabled(true);
-                    btnConnect.setText("اتصال به فندق‌شکن");
-                    Toast.makeText(MainActivity.this, "❌ خطا در اتصال به سرور پشتیبان!", Toast.LENGTH_LONG).show();
-                });
-            }
-        }).start();
     }
 
     private void startFandoghVpn() {
@@ -96,7 +62,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-super.onActivityResult(requestCode, resultCode, data);
+        super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 512 && resultCode == RESULT_OK) {
             try {
                 Intent vpnIntent = new Intent(this, FandoghVpnService.class);

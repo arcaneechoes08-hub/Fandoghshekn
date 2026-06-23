@@ -24,7 +24,6 @@ public class FandoghVpnService extends VpnService {
     private volatile boolean isRunning = false;
     private Thread xrayThread = null;
 
-    // ✅ نام لایبرری با خروجی CMakeLists.txt هماهنگ شد
     static {
         System.loadLibrary("native-lib");
     }
@@ -49,11 +48,11 @@ public class FandoghVpnService extends VpnService {
     }
 
     private void startVpn() {
+        if (isRunning) return;
         try {
             createNotificationChannel();
             Notification notification = buildNotification();
             startForeground(NOTIFICATION_ID, notification);
-            Log.d(TAG, "Foreground service started.");
 
             VpnService.Builder builder = new VpnService.Builder();
             builder.setMtu(1350);
@@ -76,14 +75,10 @@ public class FandoghVpnService extends VpnService {
                 Socket testSocket = new Socket();
                 protect(testSocket);
                 testSocket.close();
-                Log.d(TAG, "Test socket protected successfully.");
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to protect test socket", e);
-            }
+            } catch (Exception ignored) {}
 
             final String configJson = ConfigManager.getDecryptedConfig(getApplicationContext());
             if (configJson == null || configJson.isEmpty()) {
-                Log.e(TAG, "Config is null or empty.");
                 new Thread(this::stopVpn).start();
                 return;
             }
@@ -93,7 +88,6 @@ public class FandoghVpnService extends VpnService {
                 try {
                     Log.d(TAG, "Starting Xray core via JNI...");
                     startXray(configJson, tunFd);
-                    Log.d(TAG, "Xray core execution finished.");
                 } catch (Exception e) {
                     Log.e(TAG, "Native Xray crash: " + e.getMessage(), e);
                 } finally {
@@ -112,27 +106,22 @@ public class FandoghVpnService extends VpnService {
         if (isRunning) {
             try {
                 stopXray();
-                Thread.sleep(300);
-            } catch (Exception e) {
-                Log.e(TAG, "Error stopping Xray: " + e.getMessage(), e);
-            }
+                Thread.sleep(200);
+            } catch (Exception ignored) {}
             isRunning = false;
         }
 
         if (vpnInterface != null) {
             try {
                 vpnInterface.close();
-            } catch (IOException e) {
-                Log.e(TAG, "Error closing tunFd: " + e.getMessage());
-            } finally {
-                vpnInterface = null;
-            }
+            } catch (IOException ignored) {}
+            vpnInterface = null;
         }
 
         stopForeground(true);
 
         if (xrayThread != null && xrayThread.isAlive()) {
-            try { xrayThread.join(1000); } catch (InterruptedException ignored) {}
+            try { xrayThread.join(500); } catch (InterruptedException ignored) {}
             xrayThread = null;
         }
 
@@ -141,9 +130,7 @@ public class FandoghVpnService extends VpnService {
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW
-            );
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW);
             NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             if (manager != null) manager.createNotificationChannel(channel);
         }

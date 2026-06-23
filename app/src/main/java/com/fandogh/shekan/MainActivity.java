@@ -32,15 +32,19 @@ public class MainActivity extends AppCompatActivity {
                     @Override
                     public void onSuccess(String decryptedConfig) {
                         v2rayConfig = decryptedConfig;
-                        btnConnect.setEnabled(true);
-                        startFandoghVpn();
+                        runOnUiThread(() -> {
+                            btnConnect.setEnabled(true);
+                            startFandoghVpn();
+                        });
                     }
 
                     @Override
                     public void onError(String error) {
-                        btnConnect.setEnabled(true);
-                        btnConnect.setText("اتصال به فندق‌شکن");
-                        Toast.makeText(MainActivity.this, "❌ " + error, Toast.LENGTH_LONG).show();
+                        runOnUiThread(() -> {
+                            btnConnect.setEnabled(true);
+                            btnConnect.setText("اتصال به فندق‌شکن");
+                            Toast.makeText(MainActivity.this, "❌ " + error, Toast.LENGTH_LONG).show();
+                        });
                     }
                 });
             } else {
@@ -64,10 +68,9 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == 512 && resultCode == RESULT_OK) {
             try {
                 Intent vpnIntent = new Intent(this, FandoghVpnService.class);
-                vpnIntent.setAction("com.fandogh.shekan.START");
+                vpnIntent.setAction("START");
                 vpnIntent.putExtra("COMMAND_CONFIG", v2rayConfig);
                 
-                // 🎯 حل ارور ۴: فراخوانی ایمن بر اساس پلتفرم سیستم‌عامل جهت جلوگیری از سکیوریتی اکسپشن
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     startForegroundService(vpnIntent);
                 } else {
@@ -86,13 +89,14 @@ public class MainActivity extends AppCompatActivity {
     private void stopFandoghVpn() {
         try {
             Intent vpnIntent = new Intent(this, FandoghVpnService.class);
-            vpnIntent.setAction("com.fandogh.shekan.STOP");
+            vpnIntent.setAction("STOP");
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(vpnIntent);
             } else {
                 startService(vpnIntent);
             }
         } catch (Exception e) {
+            // بالادست مدیریت خطا
         }
         isConnected = false;
         btnConnect.setText("اتصال به فندق‌شکن");

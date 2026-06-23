@@ -1,42 +1,26 @@
 #include <jni.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <sys/fcntl.h>
-#include <stdio.h>
+#include <android/log.h>
+
+#define LOG_TAG "FandoghNative"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 JNIEXPORT jint JNICALL
-Java_com_fandogh_shekan_FandoghVpnService_execWithFd(JNIEnv *env, jobject thiz, jobjectArray cmd_array, jint tun_fd, jstring log_path_str) {
-    const char *log_path = (*env)->GetStringUTFChars(env, log_path_str, 0);
+Java_com_fandogh_shekan_FandoghVpnService_startNativeCore(JNIEnv *env, jobject thiz, jstring config) {
+    // تبدیل رشته جاوایی به رشته قابل فهم در C
+    const char *config_str = (*env)->GetStringUTFChars(env, config, NULL);
     
-    int len = (*env)->GetArrayLength(env, cmd_array);
-    char **args = malloc((len + 1) * sizeof(char *));
-    for (int i = 0; i < len; i++) {
-        jstring str = (*env)->GetObjectArrayElement(env, cmd_array, i);
-        args[i] = (char *)(*env)->GetStringUTFChars(env, str, 0);
-    }
-    args[len] = NULL;
-
-    // باز کردن قفل ارث‌بری فایل دسکریپتور
-    fcntl(tun_fd, F_SETFD, 0);
-
-    pid_t pid = fork();
-    if (pid == 0) {
-        // هدایت تمام ارورها و خروجی‌های لایه شبکه به فایل لوگ
-        freopen(log_path, "w", stdout);
-        freopen(log_path, "w", stderr);
-        
-        execv(args[0], args);
-        perror("execv failed");
-        exit(1);
+    if (config_str == NULL) {
+        LOGE("❌ خطای لود کانفیگ در لایه نیتیو!");
+        return -1;
     }
 
-    // آزادسازی حافظه در فرآیند اصلی جاوا
-    for (int i = 0; i < len; i++) {
-        jstring str = (*env)->GetObjectArrayElement(env, cmd_array, i);
-        (*env)->ReleaseStringUTFChars(env, str, args[i]);
-    }
-    free(args);
-    (*env)->ReleaseStringUTFChars(env, log_path_str, log_path);
+    // 🎯 اینجاست که هسته تونل‌سازی فندق‌شکن بیدار میشه
+    LOGI("🌰 [Core] هسته نیتیو فندق‌شکن با کانفیگ لود شده استارت خورد!");
+    LOGI("🌰 [Core] Config: %s", config_str);
 
-    return pid;
+    // آزادسازی حافظه رشته تخصیص داده شده
+    (*env)->ReleaseStringUTFChars(env, config, config_str);
+    
+    return 0; // کد وضعیت موفقیت‌آمیز
 }

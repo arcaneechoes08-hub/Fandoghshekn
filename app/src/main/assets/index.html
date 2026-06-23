@@ -63,24 +63,73 @@
             transform: scale(0.95);
         }
 
+        .connect-button.connected {
+            background: linear-gradient(135deg, #228B22 0%, #32CD32 100%);
+            border-color: #90EE90;
+        }
+
         .status-text {
             color: #cccccc;
             font-size: 14px;
             text-align: center;
+        }
+
+        .status-text.connected {
+            color: #90EE90;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="app-title">FandoghShekan</div>
-        <button class="connect-button" onclick="handleConnect()">Connect</button>
-        <div class="status-text">Ready to connect</div>
+        <button class="connect-button" id="connectBtn" onclick="toggleConnection()">Connect</button>
+        <div class="status-text" id="statusText">Ready to connect</div>
     </div>
 
     <script>
-        function handleConnect() {
-            alert('Step 2: VPN connection will be handled after Xray integration');
+        let isConnected = false;
+
+        function toggleConnection() {
+            if (!isConnected) {
+                document.getElementById('connectBtn').disabled = true;
+                Android.connectVPN();
+                setTimeout(() => {
+                    updateUI(true);
+                    document.getElementById('connectBtn').disabled = false;
+                }, 2000);
+            } else {
+                document.getElementById('connectBtn').disabled = true;
+                Android.disconnectVPN();
+                setTimeout(() => {
+                    updateUI(false);
+                    document.getElementById('connectBtn').disabled = false;
+                }, 1000);
+            }
         }
+
+        function updateUI(connected) {
+            isConnected = connected;
+            const btn = document.getElementById('connectBtn');
+            const status = document.getElementById('statusText');
+
+            if (connected) {
+                btn.textContent = 'Disconnect';
+                btn.classList.add('connected');
+                status.textContent = 'Connected';
+                status.classList.add('connected');
+            } else {
+                btn.textContent = 'Connect';
+                btn.classList.remove('connected');
+                status.textContent = 'Disconnected';
+                status.classList.remove('connected');
+            }
+        }
+
+        // Check initial status
+        window.addEventListener('load', () => {
+            const status = Android.getVPNStatus();
+            updateUI(status === 'connected');
+        });
     </script>
 </body>
 </html>

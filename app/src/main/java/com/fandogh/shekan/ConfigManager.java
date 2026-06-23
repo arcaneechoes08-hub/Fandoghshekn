@@ -14,14 +14,6 @@ import javax.crypto.spec.SecretKeySpec;
 
 public class ConfigManager {
 
-    // استفاده از پروکسی CDN رایگان و بدون فیلتر jsDelivr برای دور زدن فیلترینگ گیت‌هاب در ایران
-    private static final String BYPASS_URL = "https://cdn.jsdelivr.net/gh/arcaneechoes08-hub/Fandoghshekn@master/app/src/main/java/com/fandogh/shekan/ConfigManager.java"; 
-    // اما چون دیتای شما روی جیست است، از یک لینک میرور (Mirror) مستقیم استفاده می‌کنیم:
-    private static final String GIST_RAW_URL = "https://io.fastgit.org/gist/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt";
-    
-    // اگر میرور بالا هم کند بود، مستقیم از خود این دامنه استفاده می‌کنیم که فیلتر نیست:
-    private static final String ALTERNATIVE_URL = "https://raw.fastgit.org/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt";
-
     private static final String SECRET_KEY = "FandoghSecretKey"; 
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -34,15 +26,13 @@ public class ConfigManager {
 
     public void fetchAndDecryptConfig(ConfigCallback callback) {
         executor.execute(() -> {
-            // لیست لینک‌های جایگزین برای تست نوبتی در صورت فیلتر بودن
+            // استفاده از لینک مستقیم گیت‌هک که بدون فیلتر دیتا را رد می‌کند
             String[] urlsToTest = {
                 "https://gl.githack.com/gist/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt",
                 "https://gist.githubusercontent.com/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt"
             };
 
             String rawData = "";
-            int responseCode = -1;
-
             for (String baseUrl : urlsToTest) {
                 try {
                     String freshUrl = baseUrl + "?nocache=" + System.currentTimeMillis();
@@ -52,10 +42,8 @@ public class ConfigManager {
                     connection.setConnectTimeout(6000);
                     connection.setReadTimeout(6000);
                     connection.setUseCaches(false);
-                    connection.setRequestProperty("Cache-Control", "no-cache");
 
-                    responseCode = connection.getResponseCode();
-                    if (responseCode == HttpURLConnection.HTTP_OK) {
+                    if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
                         BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
                         StringBuilder response = new StringBuilder();
                         String line;
@@ -65,32 +53,36 @@ public class ConfigManager {
                         reader.close();
                         rawData = response.toString().trim();
                         if (!rawData.isEmpty()) {
-                            break; // دیتا با موفقیت دانلود شد، از حلقه خارج شو
+                            break; 
                         }
                     }
                 } catch (Exception e) {
-                    // اگر این لینک خطا داد، برو سراغ لینک بعدی
+                    // تست لینک بعدی در صورت خطا
                 }
             }
 
+            if (rawData == null || rawData.isEmpty()) {
+                mainHandler.post(() -> callback.onError("خطا در شبکه یا اینترنت گوشی"));
+                return;
+            }
+
             try {
-                if (rawData != null && !rawData.isEmpty()) {
-                    String decryptedConfig = decryptAES(rawData, SECRET_KEY);
-                    mainHandler.post(() -> callback.onSuccess(decryptedConfig));
-                } else {
-                    mainHandler.post(() -> callback.onError("خطا در شبکه: سرورهای کمکی پاسخ ندادند."));
-                }
+                String decryptedConfig = decryptAES(rawData, SECRET_KEY);
+                mainHandler.post(() -> callback.onSuccess(decryptedConfig));
             } catch (javax.crypto.BadPaddingException | javax.crypto.IllegalBlockSizeException ae) {
-                mainHandler.post(() -> callback.onError("خطا در رمزگشایی: کلید نامعتبر یا دیتای جیست اشتباه است"));
+                mainHandler.post(() -> callback.onError("خطا در رمزگشایی: دیتای جیست با کلید همخوانی ندارد"));
             } catch (Exception e) {
-                mainHandler.post(() -> callback.onError("خطا در پردازش نهایی دیتای شبکه"));
+                mainHandler.post(() -> callback.onError("خطا در پردازش نهایی دیتای شبکه: " + e.getMessage()));
             }
         });
     }
 
     private String decryptAES(String encryptedText, String key) throws Exception {
-        String cleanText = encryptedText.replaceAll("[\\n\\r\\s]+", "");
-        byte[] encryptedBytes = Base64.decode(cleanText, Base64.DEFAULT);
+        // حذف هرگونه کاراکتر مخفی، اسپیس، تب یا اینتر از ابتدا، انتها و میان متن دانلود شده
+        String cleanText = encryptedText.replaceAll("[\\n\\r\\s\\t]+", "").trim();
+        
+        // استفاده از NO_WRAP برای نادیده گرفتن شکستگی‌های خط در بیس۶۴
+        byte[] encryptedBytes = Base64.decode(cleanText, Base64.NO_WRAP);
         
         SecretKeySpec secretKey = new SecretKeySpec(key.getBytes("UTF-8"), "AES");
         Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");

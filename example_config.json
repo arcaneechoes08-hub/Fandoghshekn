@@ -1,0 +1,19 @@
+{
+  "configs": [
+    {
+      "id": 1,
+      "name": "Server-1 Iran",
+      "data": "YOUR_ENCRYPTED_VLESS_CONFIG_HERE"
+    },
+    {
+      "id": 2,
+      "name": "Server-2 Germany",
+      "data": "YOUR_ENCRYPTED_VLESS_CONFIG_HERE"
+    },
+    {
+      "id": 3,
+      "name": "Server-3 Singapore",
+      "data": "YOUR_ENCRYPTED_VLESS_CONFIG_HERE"
+    }
+  ]
+}

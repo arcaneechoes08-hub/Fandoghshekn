@@ -2,101 +2,128 @@ package com.fandogh.shekan;
 
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Base64;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class ConfigManager {
-
-    private static final String SECRET_KEY = "FandoghSecretKey"; 
-
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private static final String GIST_URL = "https://gist.githubusercontent.com/YOUR_USERNAME/YOUR_GIST_ID/raw";
+    private static final String ENCRYPTION_KEY = "FandoghSecretKey"; // 16 bytes key
+    private ExecutorService executor = Executors.newSingleThreadExecutor();
+    private Handler mainHandler = new Handler(Looper.getMainLooper());
 
     public interface ConfigCallback {
         void onSuccess(String decryptedConfig);
         void onError(String error);
     }
 
+    public interface ConfigsListCallback {
+        void onSuccess(List<ConfigModel> configs);
+        void onError(String error);
+    }
+
+    // Fetch single config and decrypt it
     public void fetchAndDecryptConfig(ConfigCallback callback) {
         executor.execute(() -> {
-            // استفاده از لینک مستقیم گیت‌هک که بدون فیلتر دیتا را رد می‌کند
-            String[] urlsToTest = {
-                "https://gl.githack.com/gist/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt",
-                "https://gist.githubusercontent.com/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt"
-            };
-
-            String rawData = "";
-            for (String baseUrl : urlsToTest) {
-                try {
-                    String freshUrl = baseUrl + "?nocache=" + System.currentTimeMillis();
-                    URL url = new URL(freshUrl);
-                    HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                    connection.setRequestMethod("GET");
-                    connection.setConnectTimeout(6000);
-                    connection.setReadTimeout(6000);
-                    connection.setUseCaches(false);
-
-                    if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                        BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                        StringBuilder response = new StringBuilder();
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            response.append(line);
-                        }
-                        reader.close();
-                        rawData = response.toString().trim();
-                        if (!rawData.isEmpty()) {
-                            break; 
-                        }
-                    }
-                } catch (Exception e) {
-                    // تست لینک بعدی در صورت خطا
-                }
-            }
-
-            if (rawData == null || rawData.isEmpty()) {
-                mainHandler.post(() -> callback.onError("خطا در شبکه یا اینترنت گوشی"));
-                return;
-            }
-
             try {
-                String decryptedConfig = decryptAES(rawData, SECRET_KEY);
-                
-                // یک بررسی حیاتی: اگر متن همین الان باز شده و یک لینک هویت‌دار است،
-                // مستقیم آن را پاس بده تا بخش‌های دیگر برنامه دوباره بیهوده آن را دیکد نکنند.
-                if (decryptedConfig.startsWith("vless://") || decryptedConfig.startsWith("vmess://") || decryptedConfig.startsWith("ss://")) {
-                    mainHandler.post(() -> callback.onSuccess(decryptedConfig));
-                } else {
-                    mainHandler.post(() -> callback.onError("خطا: ساختار کانفیگ نهایی معتبر نیست."));
-                }
-                
-            } catch (javax.crypto.BadPaddingException | javax.crypto.IllegalBlockSizeException ae) {
-                mainHandler.post(() -> callback.onError("خطا در رمزگشایی: دیتای جیست با کلید همخوانی ندارد"));
+                String encryptedData = fetchFromGist();
+                String decrypted = decrypt(encryptedData);
+                mainHandler.post(() -> callback.onSuccess(decrypted));
             } catch (Exception e) {
-                mainHandler.post(() -> callback.onError("خطا در پردازش نهایی دیتای شبکه: " + e.getMessage()));
+                mainHandler.post(() -> callback.onError(e.getMessage()));
             }
         });
     }
 
-    private String decryptAES(String encryptedText, String key) throws Exception {
-        // حذف هرگونه کاراکتر مخفی، اسپیس، تب یا اینتر از ابتدا، انتها و میان متن دانلود شده
-        String cleanText = encryptedText.replaceAll("[\\n\\r\\s\\t]+", "").trim();
-        
-        // استفاده از NO_WRAP برای نادیده گرفتن شکستگی‌های خط در بیس۶۴
-        byte[] encryptedBytes = Base64.decode(cleanText, Base64.NO_WRAP);
-        
-        SecretKeySpec secretKey = new SecretKeySpec(key.getBytes("UTF-8"), "AES");
+    // Fetch and decrypt multiple configs
+    public void fetchAndDecryptConfigs(ConfigsListCallback callback) {
+        executor.execute(() -> {
+            try {
+                JSONArray configsJson = fetchConfigsFromGist();
+                List<ConfigModel> configs = new ArrayList<>();
+
+                for (int i = 0; i < configsJson.length(); i++) {
+                    JSONObject obj = configsJson.getJSONObject(i);
+                    int id = obj.getInt("id");
+                    String name = obj.getString("name");
+                    String encryptedData = obj.getString("data");
+
+                    ConfigModel config = new ConfigModel(id, name, encryptedData);
+                    try {
+                        String decrypted = decrypt(encryptedData);
+                        config.setDecryptedData(decrypted);
+                    } catch (Exception e) {
+                        config.setStatus("failed");
+                    }
+                    configs.add(config);
+                }
+
+                mainHandler.post(() -> callback.onSuccess(configs));
+            } catch (Exception e) {
+                mainHandler.post(() -> callback.onError(e.getMessage()));
+            }
+        });
+    }
+
+    private String fetchFromGist() throws Exception {
+        URL url = new URL(GIST_URL);
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setRequestMethod("GET");
+        connection.setConnectTimeout(10000);
+        connection.setReadTimeout(10000);
+
+        int responseCode = connection.getResponseCode();
+        if (responseCode != HttpURLConnection.HTTP_OK) {
+            throw new Exception("خطا در دریافت از Gist: " + responseCode);
+        }
+
+        BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+        StringBuilder response = new StringBuilder();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            response.append(line);
+        }
+        reader.close();
+
+        return response.toString();
+    }
+
+    private JSONArray fetchConfigsFromGist() throws Exception {
+        String jsonContent = fetchFromGist();
+        JSONObject root = new JSONObject(jsonContent);
+        return root.getJSONArray("configs");
+    }
+
+    public String decrypt(String encryptedText) throws Exception {
+        SecretKeySpec secretKey = new SecretKeySpec(ENCRYPTION_KEY.getBytes("UTF-8"), "AES");
         Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
         cipher.init(Cipher.DECRYPT_MODE, secretKey);
-        
-        byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
+
+        byte[] decodedBytes = Base64.getDecoder().decode(encryptedText);
+        byte[] decryptedBytes = cipher.doFinal(decodedBytes);
         return new String(decryptedBytes, "UTF-8");
+    }
+
+    public String encrypt(String plainText) throws Exception {
+        SecretKeySpec secretKey = new SecretKeySpec(ENCRYPTION_KEY.getBytes("UTF-8"), "AES");
+        Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+
+        byte[] encryptedBytes = cipher.doFinal(plainText.getBytes("UTF-8"));
+        return Base64.getEncoder().encodeToString(encryptedBytes);
+    }
+
+    public void shutdown() {
+        executor.shutdown();
     }
 }

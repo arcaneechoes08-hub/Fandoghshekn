@@ -6,6 +6,10 @@ import android.os.Bundle;
 import android.widget.Button;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -16,6 +20,26 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // 🎯 بیدار کردن شکارچی کرش اختصاصی فندق‌شکن
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            try {
+                StringWriter sw = new StringWriter();
+                PrintWriter pw = new PrintWriter(sw);
+                throwable.printStackTrace(pw);
+                String crashLog = sw.toString();
+
+                // ذخیره مستقیم متن خطا در پوشه اختصاصی برنامه
+                File file = new File(getExternalFilesDir(null), "v2ray_crash.txt");
+                FileWriter writer = new FileWriter(file);
+                writer.write(crashLog);
+                writer.close();
+            } catch (Exception e) {
+                // خطای ثانویه در ذخیره‌سازی
+            }
+            // خروج امن بعد از ثبت وصیت‌نامه برنامه
+            System.exit(1);
+        });
+
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
@@ -27,14 +51,11 @@ public class MainActivity extends AppCompatActivity {
                 btnConnect.setEnabled(false);
                 btnConnect.setText("در حال رمزگشایی و اتصال...");
 
-                // فراخوانی متد دانلود و رمزگشایی AES کانفیگ
                 configManager.fetchAndDecryptConfig(new ConfigManager.ConfigCallback() {
                     @Override
                     public void onSuccess(String decryptedConfig) {
                         v2rayConfig = decryptedConfig;
                         btnConnect.setEnabled(true);
-
-                        // ورود به مرحله فعال‌سازی تانل با هسته اصلی
                         startFandoghVpn();
                     }
 
@@ -65,7 +86,6 @@ public class MainActivity extends AppCompatActivity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 512 && resultCode == RESULT_OK) {
             try {
-                // 🚀 اتصال مستقیم به موتور اصلی و رسمی V2Ray برای عبور دادن ترافیک
                 Intent vpnIntent = new Intent();
                 vpnIntent.setClassName(this, "com.v2ray.ang.service.V2rayVPNService");
                 vpnIntent.setAction("com.v2ray.ang.action.START");
@@ -83,15 +103,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void stopFandoghVpn() {
         try {
-            // 🛑 ارسال دستور توقف به موتور تانلینگ
             Intent vpnIntent = new Intent();
             vpnIntent.setClassName(this, "com.v2ray.ang.service.V2rayVPNService");
             vpnIntent.setAction("com.v2ray.ang.action.STOP");
             startService(vpnIntent);
         } catch (Exception e) {
-            // هندل کردن خطای احتمالی توقف
         }
-
         isConnected = false;
         btnConnect.setText("اتصال به فندق‌شکن");
         Toast.makeText(this, "فندق‌شکن متوقف شد.", Toast.LENGTH_SHORT).show();

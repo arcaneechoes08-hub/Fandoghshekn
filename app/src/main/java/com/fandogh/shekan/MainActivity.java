@@ -20,7 +20,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // 🎯 بیدار کردن شکارچی کرش اختصاصی فندق‌شکن
+        // 🎯 بیدار کردن شکارچی کرش برای ثبت دلیل دقیق کرش کردن سرویس V2Ray
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
             try {
                 StringWriter sw = new StringWriter();
@@ -28,15 +28,12 @@ public class MainActivity extends AppCompatActivity {
                 throwable.printStackTrace(pw);
                 String crashLog = sw.toString();
 
-                // ذخیره مستقیم متن خطا در پوشه اختصاصی برنامه
                 File file = new File(getExternalFilesDir(null), "v2ray_crash.txt");
                 FileWriter writer = new FileWriter(file);
                 writer.write(crashLog);
                 writer.close();
             } catch (Exception e) {
-                // خطای ثانویه در ذخیره‌سازی
             }
-            // خروج امن بعد از ثبت وصیت‌نامه برنامه
             System.exit(1);
         });
 
@@ -86,6 +83,7 @@ public class MainActivity extends AppCompatActivity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 512 && resultCode == RESULT_OK) {
             try {
+                // 🚀 تلاش برای استارت هسته اصلی
                 Intent vpnIntent = new Intent();
                 vpnIntent.setClassName(this, "com.v2ray.ang.service.V2rayVPNService");
                 vpnIntent.setAction("com.v2ray.ang.action.START");

@@ -7,7 +7,6 @@
 
 static volatile int core_running = 0;
 
-// پیاده‌سازی مستقیم توابع کُر به عنوان استاب داخلی جهت بیلد موفق
 const char* RunXray(const char* config) {
     LOGD("Xray Core Stub: Engine simulation initialized successfully.");
     return "Stub Success";
@@ -26,7 +25,7 @@ Java_com_fandogh_shekan_FandoghVpnService_startXray(JNIEnv *env, jclass clazz, j
     RunXray(config);
     
     while(core_running) {
-        sleep(1); 
+        sleep(1);
     }
 
     (*env)->ReleaseStringUTFChars(env, config_json, config);

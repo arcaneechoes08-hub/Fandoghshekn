@@ -121,7 +121,8 @@ public class FandoghVpnService extends VpnService {
         stopForeground(true);
 
         if (xrayThread != null && xrayThread.isAlive()) {
-            try { xrayThread.join(500); } catch (InterruptedException ignored) {}
+            try { xrayThread.join(500);
+            } catch (InterruptedException ignored) {}
             xrayThread = null;
         }
 

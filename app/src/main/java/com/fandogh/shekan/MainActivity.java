@@ -96,7 +96,7 @@ public class MainActivity extends AppCompatActivity {
                 startService(vpnIntent);
             }
         } catch (Exception e) {
-            // بالادست مدیریت خطا
+            // هندل استثنا
         }
         isConnected = false;
         btnConnect.setText("اتصال به فندق‌شکن");

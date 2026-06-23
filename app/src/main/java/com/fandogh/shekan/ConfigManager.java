@@ -11,41 +11,30 @@ public class ConfigManager {
     private static final String TAG = "ConfigManager";
     private static final String PREF_NAME = "FandoghPrefs";
     private static final String KEY_CONFIG = "encrypted_xray_config";
-    private static final String SECRET_KEY = "FandoghSecretKey"; // دقیقاً ۱۶ بایت استاندارد برای AES-128
+    private static final String SECRET_KEY = "FandoghSecretKey"; // ۱۶ بایت برای AES-128
 
-    // تعریف اینترفیس کالبک که MainActivity به آن نیاز دارد
     public interface ConfigCallback {
         void onSuccess(String decryptedConfig);
         void onError(String error);
     }
 
-    /**
-     * متد اسینکرون کالبک‌محور برای استفاده در MainActivity
-     */
     public void fetchAndDecryptConfig(ConfigCallback callback) {
         if (callback == null) return;
-        
         try {
-            // در فاز اول مستقیماً متد سینک را صدا می‌زنیم؛ اگر نیاز به ترد بک‌گراند بود خودمان بعداً می‌بریم روی ترد
-            String config = getDecryptedConfig(null); // چون تو کالبک کانتکست نداریم، هندل شده است
+            String config = getDecryptedConfig(null);
             callback.onSuccess(config);
         } catch (Exception e) {
             callback.onError(e.getMessage());
         }
     }
 
-    /**
-     * دریافت و رمزگشایی کانفیگ برای استفاده در سرویس
-     */
     public static String getDecryptedConfig(Context context) {
-        // اگر کانتکست نال بود یا SharedPreferences خالی بود، قالب پیش‌فرض را بدهد
         if (context == null) {
             return getDefaultXrayJson();
         }
 
         SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
         String savedConfig = prefs.getString(KEY_CONFIG, null);
-
         if (savedConfig == null || savedConfig.isEmpty()) {
             Log.w(TAG, "⚠️ کانفیگ یافت نشد؛ قالب استاندارد تست Xray صادر شد.");
             return getDefaultXrayJson();

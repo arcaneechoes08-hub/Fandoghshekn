@@ -20,12 +20,9 @@ public class PingManager {
         executor.execute(() -> {
             long startTime = System.currentTimeMillis();
             try (Socket socket = new Socket()) {
-                // تلاش برای اتصال به پورت سرور با تایم‌اوت ۳ ثانیه
                 socket.connect(new InetSocketAddress(host, port), 3000);
                 long endTime = System.currentTimeMillis();
                 long latency = endTime - startTime;
-                
-                // بازگرداندن پینگ به تِرد اصلی برنامه
                 mainHandler.post(() -> callback.onResult(latency));
             } catch (Exception e) {
                 mainHandler.post(() -> callback.onError("Timeout"));

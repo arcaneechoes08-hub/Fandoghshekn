@@ -12,7 +12,7 @@ android {
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.v2ray.ang"
+        applicationId "com.fandogh.shekan"
         minSdk 21
         targetSdk 34
         versionCode 1

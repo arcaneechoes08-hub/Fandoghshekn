@@ -1,43 +1,30 @@
-# Gradle
+# Gradle files
 .gradle/
 build/
+*.apk
+*.aar
+*.ap_
+*.aab
 
-# Android Studio
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Log files
+*.log
+
+# Android Studio files
 .idea/
 *.iml
 *.iws
 *.ipr
+out/
 
-# Compiled files
-*.class
-*.jar
-*.aar
-
-# Native build
-.cxx/
-
-# Local properties
-local.properties
-
-# Generated files
-*.apk
-*.ap_
-*.dex
-*.so
-
-# OS
+# macOS
 .DS_Store
-Thumbs.db
 
-# IDE
-.vscode/
+# Misc
+.classpath
+.project
+.settings/
 *.swp
-*.swo
-
-# Logs
-*.log
-logs/
-
-# Security
-config.properties
-secret_keys.txt
+*~

@@ -1,23 +1,9 @@
 package com.fandogh.shekan;
 
-import android.os.Handler;
-import android.os.Looper;
-import android.util.Base64;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import javax.crypto.Cipher;
-import javax.crypto.spec.SecretKeySpec;
+import java.net.URI;
+import java.net.URLDecoder;
 
 public class ConfigManager {
-
-    private static final String SECRET_KEY = "FandoghSecretKey"; 
-
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     public interface ConfigCallback {
         void onSuccess(String decryptedConfig);
@@ -25,78 +11,32 @@ public class ConfigManager {
     }
 
     public void fetchAndDecryptConfig(ConfigCallback callback) {
-        executor.execute(() -> {
-            // استفاده از لینک مستقیم گیت‌هک که بدون فیلتر دیتا را رد می‌کند
-            String[] urlsToTest = {
-                "https://gl.githack.com/gist/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt",
-                "https://gist.githubusercontent.com/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt"
-            };
-
-            String rawData = "";
-            for (String baseUrl : urlsToTest) {
-                try {
-                    String freshUrl = baseUrl + "?nocache=" + System.currentTimeMillis();
-                    URL url = new URL(freshUrl);
-                    HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                    connection.setRequestMethod("GET");
-                    connection.setConnectTimeout(6000);
-                    connection.setReadTimeout(6000);
-                    connection.setUseCaches(false);
-
-                    if (connection.getResponseCode() == HttpURLConnection.HTTP_OK) {
-                        BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                        StringBuilder response = new StringBuilder();
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            response.append(line);
-                        }
-                        reader.close();
-                        rawData = response.toString().trim();
-                        if (!rawData.isEmpty()) {
-                            break; 
-                        }
-                    }
-                } catch (Exception e) {
-                    // تست لینک بعدی در صورت خطا
-                }
-            }
-
-            if (rawData == null || rawData.isEmpty()) {
-                mainHandler.post(() -> callback.onError("خطا در شبکه یا اینترنت گوشی"));
-                return;
-            }
-
-            try {
-                String decryptedConfig = decryptAES(rawData, SECRET_KEY);
-                
-                // یک بررسی حیاتی: اگر متن همین الان باز شده و یک لینک هویت‌دار است،
-                // مستقیم آن را پاس بده تا بخش‌های دیگر برنامه دوباره بیهوده آن را دیکد نکنند.
-                if (decryptedConfig.startsWith("vless://") || decryptedConfig.startsWith("vmess://") || decryptedConfig.startsWith("ss://")) {
-                    mainHandler.post(() -> callback.onSuccess(decryptedConfig));
-                } else {
-                    mainHandler.post(() -> callback.onError("خطا: ساختار کانفیگ نهایی معتبر نیست."));
-                }
-                
-            } catch (javax.crypto.BadPaddingException | javax.crypto.IllegalBlockSizeException ae) {
-                mainHandler.post(() -> callback.onError("خطا در رمزگشایی: دیتای جیست با کلید همخوانی ندارد"));
-            } catch (Exception e) {
-                mainHandler.post(() -> callback.onError("خطا در پردازش نهایی دیتای شبکه: " + e.getMessage()));
-            }
-        });
+        // نمونه پایه فرضی؛ این بخش را با متد فچینگ اندپوینت خودت سینک نگه دار
+        String sampleConfig = "vless://example-server.com:443?encryption=none#فندق_🌰";
+        String fixedHost = parseVlessLinkSecure(sampleConfig);
+        
+        if (fixedHost != null) {
+            String jsonConfig = "{\"inbounds\":[{\"listen\":\"127.0.0.1\",\"port\":10808,\"protocol\":\"socks\",\"settings\":{\"auth\":\"noauth\",\"udp\":true}}],\"outbounds\":[{\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"" + fixedHost + "\",\"port\":443}]}}]}";
+            callback.onSuccess(jsonConfig);
+        } else {
+            callback.onError("خطا در پردازش لینک کانفیگ");
+        }
     }
 
-    private String decryptAES(String encryptedText, String key) throws Exception {
-        // حذف هرگونه کاراکتر مخفی، اسپیس، تب یا اینتر از ابتدا، انتها و میان متن دانلود شده
-        String cleanText = encryptedText.replaceAll("[\\n\\r\\s\\t]+", "").trim();
-        
-        // استفاده از NO_WRAP برای نادیده گرفتن شکستگی‌های خط در بیس۶۴
-        byte[] encryptedBytes = Base64.decode(cleanText, Base64.NO_WRAP);
-        
-        SecretKeySpec secretKey = new SecretKeySpec(key.getBytes("UTF-8"), "AES");
-        Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
-        cipher.init(Cipher.DECRYPT_MODE, secretKey);
-        
-        byte[] decryptedBytes = cipher.doFinal(encryptedBytes);
-        return new String(decryptedBytes, "UTF-8");
+    // 🎯 حل مشکل شماره ۷: ایزوله‌سازی تگ ریمارک (#) قبل از اعمال دیکودر برای ممانعت از خرابی متغیر Host
+    public static String parseVlessLinkSecure(String vlessLink) {
+        try {
+            String cleanLink = vlessLink;
+            if (vlessLink.contains("#")) {
+                int hashIndex = vlessLink.indexOf("#");
+                cleanLink = vlessLink.substring(0, hashIndex);
+                // رمزگشایی ایمن نام کانفیگ جدا از URL اصلی
+                URLDecoder.decode(vlessLink.substring(hashIndex + 1), "UTF-8");
+            }
+            URI uri = new URI(cleanLink);
+            return uri.getHost();
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

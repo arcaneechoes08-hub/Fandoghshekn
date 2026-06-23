@@ -8,11 +8,11 @@ android {
             path "src/main/cpp/CMakeLists.txt"
         }
     }
-    namespace 'com.fandogh.shekan'
+    namespace "com.v2ray.ang"
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.fandogh.shekan"
+        applicationId "com.v2ray.ang"
         minSdk 21
         targetSdk 34
         versionCode 1

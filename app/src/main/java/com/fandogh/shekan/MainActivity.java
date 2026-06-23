@@ -7,17 +7,11 @@ import android.widget.Button;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.fandogh.shekan.R;
-// وارد کردن مدیریت سرویس‌های V2Ray
-
-
 public class MainActivity extends AppCompatActivity {
 
     private Button btnConnect;
     private boolean isConnected = false;
-    
-    // ⚠️ رفیق، بعداً کانفیگِ تست خودت (Vless یا Vmess) رو می‌ذاریم اینجا
-    private String v2rayConfig = "vless://your_test_config_here";
+    private String v2rayConfig = "vless://your_fandogh_config_here";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -28,15 +22,14 @@ public class MainActivity extends AppCompatActivity {
 
         btnConnect.setOnClickListener(v -> {
             if (!isConnected) {
-                startVandoghVpn();
+                startFandoghVpn();
             } else {
                 stopFandoghVpn();
             }
         });
     }
 
-    private void startVandoghVpn() {
-        // ۱. ابتدا از کاربر اجازه دسترسی به VPN سیستم‌عامل را می‌گیریم
+    private void startFandoghVpn() {
         Intent intent = VpnService.prepare(this);
         if (intent != null) {
             startActivityForResult(intent, 512);
@@ -50,27 +43,24 @@ public class MainActivity extends AppCompatActivity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 512 && resultCode == RESULT_OK) {
             try {
-                // ۲. استارت زدن سرویس V2Ray با کانفیگ فندق‌شکن
-                Intent v2rayIntent = new Intent(this, com.v2ray.ang.service.V2rayVPNService.class);
-                v2rayIntent.setAction("com.v2ray.ang.action.start");
-                // ارسال کانفیگ به سرویس پس‌زمینه
-                v2rayIntent.putExtra("COMMAND_CONFIG", v2rayConfig);
-                startService(v2rayIntent);
+                Intent vpnIntent = new Intent(this, FandoghVpnService.class);
+                vpnIntent.setAction("com.fandogh.shekan.START");
+                vpnIntent.putExtra("COMMAND_CONFIG", v2rayConfig);
+                startService(vpnIntent);
 
                 isConnected = true;
                 btnConnect.setText("متصل شد 🌰 (قطع اتصال)");
                 Toast.makeText(this, "فندق‌شکن آزاد شد!", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
-                Toast.makeText(this, "خطا در استارت موتور V2Ray", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "خطا در استارت سرویس فندق", Toast.LENGTH_LONG).show();
             }
         }
     }
 
     private void stopFandoghVpn() {
-        // ۳. متوقف کردن سرویس و آزاد کردن ترافیک گوشی
-        Intent v2rayIntent = new Intent(this, com.v2ray.ang.service.V2rayVPNService.class);
-        v2rayIntent.setAction("com.v2ray.ang.action.stop");
-        startService(v2rayIntent);
+        Intent vpnIntent = new Intent(this, FandoghVpnService.class);
+        vpnIntent.setAction("com.fandogh.shekan.STOP");
+        startService(vpnIntent);
 
         isConnected = false;
         btnConnect.setText("اتصال به فندق‌شکن");

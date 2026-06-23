@@ -26,15 +26,15 @@ public class MainActivity extends AppCompatActivity {
             if (!isConnected) {
                 btnConnect.setEnabled(false);
                 btnConnect.setText("در حال رمزگشایی و اتصال...");
-                
-                // 🎯 فراخوانی شاهکار خودت: دانلود مخفی، دور زدن فیلترینگ و رمزگشایی AES
+
+                // فراخوانی متد دانلود و رمزگشایی AES کانفیگ
                 configManager.fetchAndDecryptConfig(new ConfigManager.ConfigCallback() {
                     @Override
                     public void onSuccess(String decryptedConfig) {
                         v2rayConfig = decryptedConfig;
                         btnConnect.setEnabled(true);
-                        
-                        // ورود به مرحله فعال‌سازی تانل شبکه با کانفیگ کاملاً رمزگشایی شده
+
+                        // ورود به مرحله فعال‌سازی تانل با هسته اصلی
                         startFandoghVpn();
                     }
 
@@ -65,24 +65,32 @@ public class MainActivity extends AppCompatActivity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == 512 && resultCode == RESULT_OK) {
             try {
-                Intent vpnIntent = new Intent(this, FandoghVpnService.class);
-                vpnIntent.setAction("com.fandogh.shekan.START");
-                vpnIntent.putExtra("COMMAND_CONFIG", v2rayConfig);
+                // 🚀 اتصال مستقیم به موتور اصلی و رسمی V2Ray برای عبور دادن ترافیک
+                Intent vpnIntent = new Intent();
+                vpnIntent.setClassName(this, "com.v2ray.ang.service.V2rayVPNService");
+                vpnIntent.setAction("com.v2ray.ang.action.START");
+                vpnIntent.putExtra("MAIN_CONFIG", v2rayConfig);
                 startService(vpnIntent);
 
                 isConnected = true;
                 btnConnect.setText("متصل شد 🌰 (قطع اتصال)");
                 Toast.makeText(this, "فندق‌شکن فعال شد!", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
-                Toast.makeText(this, "خطا در استارت سرویس فندق", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "خطا در استارت سرویس هسته V2Ray", Toast.LENGTH_LONG).show();
             }
         }
     }
 
     private void stopFandoghVpn() {
-        Intent vpnIntent = new Intent(this, FandoghVpnService.class);
-        vpnIntent.setAction("com.fandogh.shekan.STOP");
-        startService(vpnIntent);
+        try {
+            // 🛑 ارسال دستور توقف به موتور تانلینگ
+            Intent vpnIntent = new Intent();
+            vpnIntent.setClassName(this, "com.v2ray.ang.service.V2rayVPNService");
+            vpnIntent.setAction("com.v2ray.ang.action.STOP");
+            startService(vpnIntent);
+        } catch (Exception e) {
+            // هندل کردن خطای احتمالی توقف
+        }
 
         isConnected = false;
         btnConnect.setText("اتصال به فندق‌شکن");

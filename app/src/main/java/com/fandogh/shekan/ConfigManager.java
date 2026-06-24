@@ -22,7 +22,7 @@ public class ConfigManager {
     private static final String SECRET_KEY = "FandoghSecretKey";
     private static final String GIST_RAW_URL =
             "https://gist.githubusercontent.com/arcaneechoes08-hub/" +
-            "97ed58c7ee1f162a7a0ae8608f08b25c/raw/%D9%84";
+            "360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());

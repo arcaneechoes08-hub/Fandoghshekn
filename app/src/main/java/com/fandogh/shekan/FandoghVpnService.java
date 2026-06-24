@@ -29,7 +29,7 @@ public class FandoghVpnService extends VpnService {
         System.loadLibrary("native-lib");
     }
 
-    public static native int startCoreNative(String corePath, String configPath, int tunFd);
+    public static native int startCoreNative(String corePath, String tun2socksPath, String configPath, int tunFd);
     public static native void stopCoreNative();
 
     @Override
@@ -92,7 +92,7 @@ public class FandoghVpnService extends VpnService {
                 return;
             }
 
-            final String singBoxJson = convertToSingBoxJson(rawConfig, tunFd);
+            final String singBoxJson = convertToSingBoxJson(rawConfig);
             Log.d(TAG, "Generated sing-box config length: " + singBoxJson.length());
 
             File configFile = new File(getFilesDir(), "config.json");
@@ -101,31 +101,21 @@ public class FandoghVpnService extends VpnService {
             }
 
             String abi = Build.SUPPORTED_ABIS[0];
-            String assetName = "singbox-arm64-v8a";
-            if (abi.toLowerCase().contains("v7") || abi.toLowerCase().contains("armeabi")) {
-                assetName = "singbox-armeabi-v7a";
-            }
+            boolean isArm7 = abi.toLowerCase().contains("v7") || abi.toLowerCase().contains("armeabi");
 
-            File coreBin = new File(getFilesDir(), "singbox_core");
-            try (InputStream is = getAssets().open(assetName);
-                 FileOutputStream fos = new FileOutputStream(coreBin)) {
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = is.read(buffer)) != -1) {
-                    fos.write(buffer, 0, read);
-                }
-            }
-            coreBin.setExecutable(true, true);
+            File coreBin = extractAsset(isArm7 ? "singbox-armeabi-v7a" : "singbox-arm64-v8a", "singbox_core");
+            File tun2socksBin = extractAsset(isArm7 ? "tun2socks-armeabi-v7a" : "tun2socks-arm64-v8a", "tun2socks");
 
             isRunning = true;
             coreThread = new Thread(() -> {
                 try {
-                    Log.d(TAG, "Launching Sing-box core...");
+                    Log.d(TAG, "Launching sing-box + tun2socks...");
                     int exitCode = startCoreNative(
                             coreBin.getAbsolutePath(),
+                            tun2socksBin.getAbsolutePath(),
                             configFile.getAbsolutePath(),
                             tunFd);
-                    Log.d(TAG, "Sing-box core exited with code: " + exitCode);
+                    Log.d(TAG, "Core exited with code: " + exitCode);
                 } catch (Exception e) {
                     Log.e(TAG, "Native core error: " + e.getMessage(), e);
                 } finally {
@@ -140,7 +130,21 @@ public class FandoghVpnService extends VpnService {
         }
     }
 
-    private String convertToSingBoxJson(String input, int tunFd) {
+    private File extractAsset(String assetName, String outputName) throws IOException {
+        File out = new File(getFilesDir(), outputName);
+        try (InputStream is = getAssets().open(assetName);
+             FileOutputStream fos = new FileOutputStream(out)) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = is.read(buffer)) != -1) {
+                fos.write(buffer, 0, read);
+            }
+        }
+        out.setExecutable(true, true);
+        return out;
+    }
+
+    private String convertToSingBoxJson(String input) {
         String host = "";
         int port = 443;
         String uuid = "";
@@ -229,24 +233,22 @@ public class FandoghVpnService extends VpnService {
         // Log
         sb.append("  \"log\": {\"level\": \"info\"},\n");
 
-        // DNS
+        // DNS – sing-box 1.13 format (typed servers, domain_resolver on outbounds)
         sb.append("  \"dns\": {\n");
         sb.append("    \"servers\": [\n");
-        sb.append("      {\"tag\": \"proxy-dns\", \"address\": \"https://1.1.1.1/dns-query\", \"detour\": \"proxy\"},\n");
-        sb.append("      {\"tag\": \"direct-dns\", \"address\": \"local\", \"detour\": \"direct\"}\n");
+        sb.append("      {\"tag\": \"proxy-dns\", \"type\": \"https\", \"server\": \"1.1.1.1\", \"detour\": \"proxy\"},\n");
+        sb.append("      {\"tag\": \"direct-dns\", \"type\": \"local\", \"detour\": \"direct\"}\n");
         sb.append("    ],\n");
-        sb.append("    \"rules\": [{\"outbound\": \"any\", \"server\": \"direct-dns\"}],\n");
+        sb.append("    \"final\": \"proxy-dns\",\n");
         sb.append("    \"strategy\": \"ipv4_only\"\n");
         sb.append("  },\n");
 
-        // Inbounds (TUN with sniffing)
+        // Inbounds – mixed proxy (tun2socks bridges TUN fd to this)
         sb.append("  \"inbounds\": [{\n");
-        sb.append("    \"type\": \"tun\",\n");
-        sb.append("    \"tag\": \"tun-in\",\n");
-        sb.append("    \"fd\": ").append(tunFd).append(",\n");
-        sb.append("    \"stack\": \"gvisor\",\n");
-        sb.append("    \"sniff\": true,\n");
-        sb.append("    \"sniff_override_destination\": true\n");
+        sb.append("    \"type\": \"mixed\",\n");
+        sb.append("    \"tag\": \"mixed-in\",\n");
+        sb.append("    \"listen\": \"127.0.0.1\",\n");
+        sb.append("    \"listen_port\": 10808\n");
         sb.append("  }],\n");
 
         // Outbounds
@@ -256,6 +258,7 @@ public class FandoghVpnService extends VpnService {
         sb.append("    \"server\": \"").append(host).append("\",\n");
         sb.append("    \"server_port\": ").append(port).append(",\n");
         sb.append("    \"uuid\": \"").append(uuid).append("\"");
+        sb.append(",\n    \"domain_resolver\": \"direct-dns\"");
 
         if (!flow.isEmpty()) {
             sb.append(",\n    \"flow\": \"").append(flow).append("\"");
@@ -333,17 +336,16 @@ public class FandoghVpnService extends VpnService {
 
         sb.append("\n  }, {\n");
         sb.append("    \"type\": \"direct\",\n");
-        sb.append("    \"tag\": \"direct\"\n");
-        sb.append("  }, {\n");
-        sb.append("    \"type\": \"dns\",\n");
-        sb.append("    \"tag\": \"dns-out\"\n");
+        sb.append("    \"tag\": \"direct\",\n");
+        sb.append("    \"domain_resolver\": \"direct-dns\"\n");
         sb.append("  }],\n");
 
-        // Route
+        // Route – sing-box 1.13 rule actions (sniff + hijack-dns)
         sb.append("  \"route\": {\n");
         sb.append("    \"rules\": [\n");
-        sb.append("      {\"protocol\": \"dns\", \"outbound\": \"dns-out\"},\n");
-        sb.append("      {\"ip_is_private\": true, \"outbound\": \"direct\"}\n");
+        sb.append("      {\"action\": \"sniff\"},\n");
+        sb.append("      {\"protocol\": \"dns\", \"action\": \"hijack-dns\"},\n");
+        sb.append("      {\"ip_is_private\": true, \"action\": \"route\", \"outbound\": \"direct\"}\n");
         sb.append("    ],\n");
         sb.append("    \"final\": \"proxy\",\n");
         sb.append("    \"auto_detect_interface\": true\n");
@@ -360,15 +362,22 @@ public class FandoghVpnService extends VpnService {
             } catch (Exception ignored) {}
             isRunning = false;
         }
+        if (coreThread != null) {
+            try {
+                coreThread.join(3000);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            if (coreThread.isAlive()) {
+                coreThread.interrupt();
+            }
+            coreThread = null;
+        }
         if (vpnInterface != null) {
             try { vpnInterface.close(); } catch (IOException ignored) {}
             vpnInterface = null;
         }
         stopForeground(true);
-        if (coreThread != null && coreThread.isAlive()) {
-            coreThread.interrupt();
-            coreThread = null;
-        }
         stopSelf();
     }
 

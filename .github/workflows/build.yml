@@ -21,17 +21,32 @@ jobs:
           TAG_NAME=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.tag_name')
           VERSION=${TAG_NAME#v}
           
-          echo "📥 Downloading Sing-box v$VERSION for arm64-v8a..."
-          curl -L -o singbox-arm64.tar.gz "https://github.com/SagerNet/sing-box/releases/download/${TAG_NAME}/sing-box-${VERSION}-linux-arm64.tar.gz"
+          echo "📥 Downloading Sing-box v$VERSION for arm64-v8a (android)..."
+          curl -L -o singbox-arm64.tar.gz "https://github.com/SagerNet/sing-box/releases/download/${TAG_NAME}/sing-box-${VERSION}-android-arm64.tar.gz"
           tar -xzf singbox-arm64.tar.gz
-          mv sing-box-${VERSION}-linux-arm64/sing-box app/src/main/assets/singbox-arm64-v8a
+          mv sing-box-${VERSION}-android-arm64/sing-box app/src/main/assets/singbox-arm64-v8a
           
-          echo "📥 Downloading Sing-box v$VERSION for armeabi-v7a..."
-          curl -L -o singbox-armv7.tar.gz "https://github.com/SagerNet/sing-box/releases/download/${TAG_NAME}/sing-box-${VERSION}-linux-armv7.tar.gz"
+          echo "📥 Downloading Sing-box v$VERSION for armeabi-v7a (android)..."
+          curl -L -o singbox-armv7.tar.gz "https://github.com/SagerNet/sing-box/releases/download/${TAG_NAME}/sing-box-${VERSION}-android-arm.tar.gz"
           tar -xzf singbox-armv7.tar.gz
-          mv sing-box-${VERSION}-linux-armv7/sing-box app/src/main/assets/singbox-armeabi-v7a
+          mv sing-box-${VERSION}-android-arm/sing-box app/src/main/assets/singbox-armeabi-v7a
           
           echo "✅ Sing-box Core binaries packaged into assets successfully!"
+
+      - name: Download tun2socks
+        run: |
+          TUN2SOCKS_TAG=$(curl -s https://api.github.com/repos/xjasonlyu/tun2socks/releases/latest | jq -r '.tag_name')
+          echo "📥 Downloading tun2socks ${TUN2SOCKS_TAG}..."
+          
+          curl -L -o tun2socks-arm64.zip "https://github.com/xjasonlyu/tun2socks/releases/download/${TUN2SOCKS_TAG}/tun2socks-linux-arm64.zip"
+          unzip -o tun2socks-arm64.zip -d tun2socks-arm64
+          mv tun2socks-arm64/tun2socks-linux-arm64 app/src/main/assets/tun2socks-arm64-v8a
+          
+          curl -L -o tun2socks-armv7.zip "https://github.com/xjasonlyu/tun2socks/releases/download/${TUN2SOCKS_TAG}/tun2socks-linux-armv7.zip"
+          unzip -o tun2socks-armv7.zip -d tun2socks-armv7
+          mv tun2socks-armv7/tun2socks-linux-armv7 app/src/main/assets/tun2socks-armeabi-v7a
+          
+          echo "✅ tun2socks binaries packaged into assets!"
 
       - name: Build with Gradle
         run: ./gradlew assembleDebug

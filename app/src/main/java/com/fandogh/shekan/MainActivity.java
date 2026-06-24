@@ -21,12 +21,12 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         btnConnect = findViewById(R.id.btnConnect);
-        configManager = new ConfigManager();
+        configManager = new ConfigManager(getApplicationContext());
 
         btnConnect.setOnClickListener(v -> {
             if (!isConnected) {
                 btnConnect.setEnabled(false);
-                btnConnect.setText("در حال رمزگشایی و اتصال...");
+                btnConnect.setText("در حال دریافت کانفیگ...");
 
                 configManager.fetchAndDecryptConfig(new ConfigManager.ConfigCallback() {
                     @Override
@@ -43,7 +43,7 @@ public class MainActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             btnConnect.setEnabled(true);
                             btnConnect.setText("اتصال به فندق‌شکن");
-                            Toast.makeText(MainActivity.this, "❌ " + error, Toast.LENGTH_LONG).show();
+                            Toast.makeText(MainActivity.this, "خطا: " + error, Toast.LENGTH_LONG).show();
                         });
                     }
                 });
@@ -70,7 +70,7 @@ public class MainActivity extends AppCompatActivity {
                 Intent vpnIntent = new Intent(this, FandoghVpnService.class);
                 vpnIntent.setAction("START");
                 vpnIntent.putExtra("COMMAND_CONFIG", v2rayConfig);
-                
+
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     startForegroundService(vpnIntent);
                 } else {
@@ -78,7 +78,7 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 isConnected = true;
-                btnConnect.setText("متصل شد 🌰 (قطع اتصال)");
+                btnConnect.setText("متصل شد (قطع اتصال)");
                 Toast.makeText(this, "فندق‌شکن فعال شد!", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
                 Toast.makeText(this, "خطا در استارت سرویس فندق‌شکن", Toast.LENGTH_LONG).show();
@@ -96,7 +96,7 @@ public class MainActivity extends AppCompatActivity {
                 startService(vpnIntent);
             }
         } catch (Exception e) {
-            // هندل استثنا
+            // ignore
         }
         isConnected = false;
         btnConnect.setText("اتصال به فندق‌شکن");

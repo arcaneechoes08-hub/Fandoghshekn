@@ -10,6 +10,8 @@ import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 import androidx.core.app.NotificationCompat;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 
 public class FandoghVpnService extends VpnService {
@@ -23,13 +25,11 @@ public class FandoghVpnService extends VpnService {
     private Thread coreThread = null;
 
     static {
-        // لود کردن کتابخانه نیتیو پروژه
         System.loadLibrary("native-lib");
     }
 
-    // حفظ ساختار متد JNI قبلی جهت هماهنگی کامل و عدم نیاز به تغییر در کدهای C/Go شما
-    public static native void startXray(String configJson, int tunFd);
-    public static native void stopXray();
+    public static native int startCoreNative(String corePath, String configPath, int tunFd);
+    public static native void stopCoreNative();
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -48,27 +48,25 @@ public class FandoghVpnService extends VpnService {
             Notification notification = buildNotification();
             startForeground(NOTIFICATION_ID, notification);
 
-            // ایجاد کانال تونل امن و پایدار لایه ۳ شبکه
             VpnService.Builder builder = new VpnService.Builder();
             builder.setMtu(1400);
-            builder.addAddress("172.19.0.1", 30); // رنج آی‌پی محلی و استاندارد موتور gVisor
+            builder.addAddress("172.19.0.1", 30);
             builder.addDnsServer("1.1.1.1");
             builder.addDnsServer("8.8.8.8");
-            builder.addRoute("0.0.0.0", 0); // هدایت کل ترافیک دستگاه به داخل فندق‌شکن
+            builder.addRoute("0.0.0.0", 0);
             builder.setSession("FandoghShekan");
-            builder.addDisallowedApplication(getPackageName()); // جلوگیری از لوپ شدن دیتای خود اپلیکیشن
+            builder.addDisallowedApplication(getPackageName());
 
             vpnInterface = builder.establish();
             if (vpnInterface == null) {
-                Log.e(TAG, "ساخت اینترفیس VPN با خطا مواجه شد.");
+                Log.e(TAG, "Failed to establish VPN interface.");
                 stopVpn();
                 return;
             }
 
             final int tunFd = vpnInterface.getFd();
-            Log.d(TAG, "تونل امن با موفقیت باز شد. شناسه فایل: " + tunFd);
+            Log.d(TAG, "TUN interface established. FD: " + tunFd);
 
-            // استخراج هوشمند لینک یا کانفیگ ارسال شده از اکتیویتی یا حافظه
             String rawConfig = null;
             if (intent != null) {
                 rawConfig = intent.getStringExtra("COMMAND_CONFIG");
@@ -80,16 +78,24 @@ public class FandoghVpnService extends VpnService {
                 rawConfig = ConfigManager.getDecryptedConfig(getApplicationContext());
             }
 
-            // تبدیل هوشمند دیتا به کانفیگ سازگار با اینباند TUN در Sing-box
             final String singBoxJson = convertToSingBoxJson(rawConfig, tunFd);
+
+            // ذخیره فایل تنظیمات جهت خوانش توسط پروسه نیتیو
+            File configFile = new File(getFilesDir(), "config.json");
+            try (FileOutputStream fos = new FileOutputStream(configFile)) {
+                fos.write(singBoxJson.getBytes("UTF-8"));
+            }
+
+            String nativeDir = getApplicationInfo().nativeLibraryDir;
+            File coreBin = new File(nativeDir, "libsingbox.so");
 
             isRunning = true;
             coreThread = new Thread(() -> {
                 try {
-                    Log.d(TAG, "در حال ارسال کانفیگ Sing-box به لایه نیتیو...");
-                    startXray(singBoxJson, tunFd);
+                    Log.d(TAG, "Launching Sing-box core...");
+                    startCoreNative(coreBin.getAbsolutePath(), configFile.getAbsolutePath(), tunFd);
                 } catch (Exception e) {
-                    Log.e(TAG, "خطای کرش در هسته نیتیو: " + e.getMessage(), e);
+                    Log.e(TAG, "Native core error: " + e.getMessage(), e);
                 } finally {
                     isRunning = false;
                 }
@@ -97,13 +103,12 @@ public class FandoghVpnService extends VpnService {
             coreThread.start();
 
         } catch (Exception e) {
-            Log.e(TAG, "خطا در راه‌اندازی سرویس: " + e.getMessage(), e);
+            Log.e(TAG, "Error starting VPN: " + e.getMessage(), e);
             stopVpn();
         }
     }
 
     private String convertToSingBoxJson(String input, int tunFd) {
-        // مقادیر پیش‌فرض پایدار در صورت بروز خطا در پارس کردن لینک
         String host = "YOUR_SERVER_ADDRESS";
         int port = 443;
         String uuid = "00000000-0000-0000-0000-000000000000";
@@ -143,11 +148,10 @@ public class FandoghVpnService extends VpnService {
                     }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "خطا در پردازش لینک VLESS، استفاده از مقادیر پیش‌فرض: " + e.getMessage());
+                Log.e(TAG, "Error parsing VLESS link: " + e.getMessage());
             }
         }
 
-        // تولید قالب فوق‌العاده تمیز Sing-box که ترافیک tunFd را به طور مستقیم و بدون واسطه عبور می‌دهد
         return "{\n" +
                 "  \"log\": {\"level\": \"warn\"},\n" +
                 "  \"inbounds\": [{\n" +
@@ -180,7 +184,7 @@ public class FandoghVpnService extends VpnService {
     private void stopVpn() {
         if (isRunning) {
             try {
-                stopXray();
+                stopCoreNative();
                 Thread.sleep(100);
             } catch (Exception ignored) {}
             isRunning = false;

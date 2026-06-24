@@ -32,6 +32,13 @@ Java_com_fandogh_shekan_FandoghVpnService_startCoreNative(
     LOGD("Starting core: %s, tun2socks: %s, config: %s, tunFd: %d",
          core_path, tun2socks_path, config_path, tun_fd);
 
+    if (access(core_path, X_OK) != 0) {
+        LOGE("sing-box not executable: %s (errno=%d: %s)", core_path, errno, strerror(errno));
+    }
+    if (access(tun2socks_path, X_OK) != 0) {
+        LOGE("tun2socks not executable: %s (errno=%d: %s)", tun2socks_path, errno, strerror(errno));
+    }
+
     int flags = fcntl(tun_fd, F_GETFD);
     if (flags != -1) {
         fcntl(tun_fd, F_SETFD, flags & ~FD_CLOEXEC);
@@ -54,8 +61,8 @@ Java_com_fandogh_shekan_FandoghVpnService_startCoreNative(
     core_pid = pid1;
     LOGD("sing-box started with PID: %d", pid1);
 
-    /* Brief pause to let sing-box bind the SOCKS port */
-    usleep(500000);
+    /* Pause to let sing-box bind the SOCKS port */
+    usleep(1500000);
 
     /* --- Start tun2socks (bridges TUN fd to sing-box SOCKS proxy) --- */
     char device_arg[32];

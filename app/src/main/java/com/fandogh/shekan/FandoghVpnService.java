@@ -13,7 +13,6 @@ import androidx.core.app.NotificationCompat;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 
 public class FandoghVpnService extends VpnService {
     private static final String TAG = "FandoghVpnService";
@@ -100,19 +99,20 @@ public class FandoghVpnService extends VpnService {
                 fos.write(singBoxJson.getBytes("UTF-8"));
             }
 
-            String abi = Build.SUPPORTED_ABIS[0];
-            boolean isArm7 = abi.toLowerCase().contains("v7") || abi.toLowerCase().contains("armeabi");
+            String nativeDir = getApplicationInfo().nativeLibraryDir;
+            final String corePath = nativeDir + "/libsingbox.so";
+            final String tun2socksPath = nativeDir + "/libtun2socks.so";
 
-            File coreBin = extractAsset(isArm7 ? "singbox-armeabi-v7a" : "singbox-arm64-v8a", "singbox_core");
-            File tun2socksBin = extractAsset(isArm7 ? "tun2socks-armeabi-v7a" : "tun2socks-arm64-v8a", "tun2socks");
+            Log.d(TAG, "sing-box path: " + corePath + " exists: " + new File(corePath).exists());
+            Log.d(TAG, "tun2socks path: " + tun2socksPath + " exists: " + new File(tun2socksPath).exists());
 
             isRunning = true;
             coreThread = new Thread(() -> {
                 try {
                     Log.d(TAG, "Launching sing-box + tun2socks...");
                     int exitCode = startCoreNative(
-                            coreBin.getAbsolutePath(),
-                            tun2socksBin.getAbsolutePath(),
+                            corePath,
+                            tun2socksPath,
                             configFile.getAbsolutePath(),
                             tunFd);
                     Log.d(TAG, "Core exited with code: " + exitCode);
@@ -128,20 +128,6 @@ public class FandoghVpnService extends VpnService {
             Log.e(TAG, "Error starting VPN: " + e.getMessage(), e);
             stopVpn();
         }
-    }
-
-    private File extractAsset(String assetName, String outputName) throws IOException {
-        File out = new File(getFilesDir(), outputName);
-        try (InputStream is = getAssets().open(assetName);
-             FileOutputStream fos = new FileOutputStream(out)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = is.read(buffer)) != -1) {
-                fos.write(buffer, 0, read);
-            }
-        }
-        out.setExecutable(true, true);
-        return out;
     }
 
     private String convertToSingBoxJson(String input) {
@@ -347,8 +333,7 @@ public class FandoghVpnService extends VpnService {
         sb.append("      {\"protocol\": \"dns\", \"action\": \"hijack-dns\"},\n");
         sb.append("      {\"ip_is_private\": true, \"action\": \"route\", \"outbound\": \"direct\"}\n");
         sb.append("    ],\n");
-        sb.append("    \"final\": \"proxy\",\n");
-        sb.append("    \"auto_detect_interface\": true\n");
+        sb.append("    \"final\": \"proxy\"\n");
         sb.append("  }\n");
 
         sb.append("}");

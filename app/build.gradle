@@ -21,6 +21,14 @@ android {
         versionCode 2
         versionName "1.0"
     }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        doNotStrip '**/libsingbox.so'
+        doNotStrip '**/libtun2socks.so'
+    }
 }
 
 dependencies {

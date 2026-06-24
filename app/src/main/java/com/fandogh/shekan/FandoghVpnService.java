@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 
 public class FandoghVpnService extends VpnService {
     private static final String TAG = "FandoghVpnService";
@@ -86,8 +87,25 @@ public class FandoghVpnService extends VpnService {
                 fos.write(singBoxJson.getBytes("UTF-8"));
             }
 
-            String nativeDir = getApplicationInfo().nativeLibraryDir;
-            File coreBin = new File(nativeDir, "libsingbox.so");
+            // تشخیص معماری سخت‌افزار و استخراج هوشمند باینری
+            String abi = Build.SUPPORTED_ABIS[0];
+            String assetName = "singbox-arm64-v8a";
+            if (abi.toLowerCase().contains("v7") || abi.toLowerCase().contains("armeabi")) {
+                assetName = "singbox-armeabi-v7a";
+            }
+
+            File coreBin = new File(getFilesDir(), "singbox_core");
+            try (InputStream is = getAssets().open(assetName);
+                 FileOutputStream fos = new FileOutputStream(coreBin)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = is.read(buffer)) != -1) {
+                    fos.write(buffer, 0, read);
+                }
+            }
+            
+            // اهدا کردن پرمیشن اجرایی لینوکس به فایل صادر شده
+            coreBin.setExecutable(true, true);
 
             isRunning = true;
             coreThread = new Thread(() -> {

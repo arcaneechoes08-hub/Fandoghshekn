@@ -16,8 +16,7 @@ jobs:
 
       - name: Download and Prepare Sing-box Core
         run: |
-          mkdir -p app/src/main/jniLibs/arm64-v8a
-          mkdir -p app/src/main/jniLibs/armeabi-v7a
+          mkdir -p app/src/main/assets
           
           TAG_NAME=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.tag_name')
           VERSION=${TAG_NAME#v}
@@ -25,16 +24,14 @@ jobs:
           echo "📥 Downloading Sing-box v$VERSION for arm64-v8a..."
           curl -L -o singbox-arm64.tar.gz "https://github.com/SagerNet/sing-box/releases/download/${TAG_NAME}/sing-box-${VERSION}-linux-arm64.tar.gz"
           tar -xzf singbox-arm64.tar.gz
-          mv sing-box-${VERSION}-linux-arm64/sing-box app/src/main/jniLibs/arm64-v8a/libsingbox.so
-          chmod +x app/src/main/jniLibs/arm64-v8a/libsingbox.so
+          mv sing-box-${VERSION}-linux-arm64/sing-box app/src/main/assets/singbox-arm64-v8a
           
           echo "📥 Downloading Sing-box v$VERSION for armeabi-v7a..."
           curl -L -o singbox-armv7.tar.gz "https://github.com/SagerNet/sing-box/releases/download/${TAG_NAME}/sing-box-${VERSION}-linux-armv7.tar.gz"
           tar -xzf singbox-armv7.tar.gz
-          mv sing-box-${VERSION}-linux-armv7/sing-box app/src/main/jniLibs/armeabi-v7a/libsingbox.so
-          chmod +x app/src/main/jniLibs/armeabi-v7a/libsingbox.so
+          mv sing-box-${VERSION}-linux-armv7/sing-box app/src/main/assets/singbox-armeabi-v7a
           
-          echo "✅ Sing-box Core binaries injected successfully!"
+          echo "✅ Sing-box Core binaries packaged into assets successfully!"
 
       - name: Build with Gradle
         run: ./gradlew assembleDebug

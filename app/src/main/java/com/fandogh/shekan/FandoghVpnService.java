@@ -57,6 +57,7 @@ public class FandoghVpnService extends VpnService {
             VpnService.Builder builder = new VpnService.Builder();
             builder.setMtu(1500);
             builder.addAddress("172.19.0.1", 30);
+            builder.addAddress("fd00::1", 128);
             builder.addDnsServer("1.1.1.1");
             builder.addDnsServer("8.8.8.8");
             builder.addRoute("0.0.0.0", 0);

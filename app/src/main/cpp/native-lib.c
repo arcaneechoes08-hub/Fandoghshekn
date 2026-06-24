@@ -28,8 +28,9 @@ Java_com_fandogh_shekan_FandoghVpnService_startCoreNative(JNIEnv *env, jclass cl
         fcntl(tun_fd, F_SETFD, flags & ~FD_CLOEXEC);
     }
 
-    core_pid = fork();
-    if (core_pid == 0) {
+    pid_t pid = fork();
+    core_pid = pid;
+    if (pid == 0) {
         char fd_env[64];
         snprintf(fd_env, sizeof(fd_env), "TUN_FD=%d", tun_fd);
         putenv(fd_env);
@@ -41,11 +42,11 @@ Java_com_fandogh_shekan_FandoghVpnService_startCoreNative(JNIEnv *env, jclass cl
     (*env)->ReleaseStringUTFChars(env, java_core_path, core_path);
     (*env)->ReleaseStringUTFChars(env, java_config_path, config_path);
 
-    if (core_pid > 0) {
-        LOGD("Core started with PID: %d, waiting...", core_pid);
+    if (pid > 0) {
+        LOGD("Core started with PID: %d, waiting...", pid);
         int status;
-        waitpid(core_pid, &status, 0);
-        core_pid = -1;
+        waitpid(pid, &status, 0);
+        __atomic_compare_exchange_n(&core_pid, &pid, -1, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
         if (WIFEXITED(status)) {
             LOGD("Core exited with status: %d", WEXITSTATUS(status));
             return WEXITSTATUS(status);

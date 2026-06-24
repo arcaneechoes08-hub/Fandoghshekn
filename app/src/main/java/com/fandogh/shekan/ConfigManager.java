@@ -44,13 +44,13 @@ public class ConfigManager {
         executor.execute(() -> {
             try {
                 String encryptedConfig = fetchFromGist();
+                String decrypted = decrypt(encryptedConfig);
 
                 if (context != null && encryptedConfig != null) {
                     SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
                     prefs.edit().putString(KEY_CONFIG, encryptedConfig).apply();
                 }
 
-                String decrypted = decrypt(encryptedConfig);
                 mainHandler.post(() -> callback.onSuccess(decrypted));
             } catch (Exception e) {
                 Log.w(TAG, "Gist fetch failed, trying cached config: " + e.getMessage());
@@ -72,30 +72,32 @@ public class ConfigManager {
     private String fetchFromGist() throws Exception {
         URL url = new URL(GIST_RAW_URL);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setRequestMethod("GET");
-        connection.setConnectTimeout(10000);
-        connection.setReadTimeout(10000);
-        connection.setInstanceFollowRedirects(true);
+        try {
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(10000);
+            connection.setInstanceFollowRedirects(true);
 
-        int responseCode = connection.getResponseCode();
-        if (responseCode != HttpURLConnection.HTTP_OK) {
-            throw new Exception("Server returned: " + responseCode);
-        }
+            int responseCode = connection.getResponseCode();
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                throw new Exception("Server returned: " + responseCode);
+            }
 
-        BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-        StringBuilder response = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            response.append(line);
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                StringBuilder response = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    response.append(line);
+                }
+                String result = response.toString().trim();
+                if (result.isEmpty()) {
+                    throw new Exception("Empty response from server");
+                }
+                return result;
+            }
+        } finally {
+            connection.disconnect();
         }
-        reader.close();
-        connection.disconnect();
-
-        String result = response.toString().trim();
-        if (result.isEmpty()) {
-            throw new Exception("Empty response from server");
-        }
-        return result;
     }
 
     private String getCachedEncrypted() {

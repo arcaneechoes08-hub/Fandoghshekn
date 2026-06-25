@@ -95,10 +95,10 @@ public class FandoghVpnService extends VpnService implements Runnable {
             
             String nativeDir = getApplicationInfo().nativeLibraryDir;
             File coreBin = new File(nativeDir, "libxray.so");
-            AppLog.add("FandoghVpnService", "در حال بررسی وجود باینری در مسیر سیستمی...");
+            AppLog.add("FandoghVpnService", "در حال بررسی وجود باینری در مسیر سیستمی: " + coreBin.getAbsolutePath());
             
             if (!coreBin.exists()) {
-                throw new Exception("فایل هسته libxray.so در این مسیر یافت نشد!");
+                throw new Exception("فایل هسته libxray.so یافت نشد! مطمئن شوید extractNativeLibs در مانیفست true است.");
             }
 
             File baseDir = getFilesDir();
@@ -119,7 +119,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
             }
             AppLog.add("FandoghVpnService", "تونل لایه ۳ با موفقیت باز شد. شماره Fd: " + mInterface.getFd());
 
-            // بخش‌های ساخت فایل json تنظیمات
+            // بخش‌های ساخت فایل json تنظیمات به همراه پارس پویا
             generateSingBoxConfig(mVlessLink, baseDir, mInterface.getFd());
             AppLog.add("FandoghVpnService", "فایل تنظیمات هسته تولید شد. دستور اجرای مستقیم باینری صادر می‌شود...");
             showStatus("🚀 فندق‌شکن متصل شد و ترافیک ایمن گردید.");
@@ -131,7 +131,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 new File(baseDir, "config.json").getAbsolutePath()
             };
             
-            // قبل از اجرای باینری هسته هسته
             AppLog.add("FandoghVpnService", "دستور فرستاده شد: " + coreBin.getAbsolutePath());
             mCoreProcess = Runtime.getRuntime().exec(cmd);
             
@@ -144,15 +143,83 @@ public class FandoghVpnService extends VpnService implements Runnable {
             Log.e(TAG, "خطا: " + e.getMessage());
             AppLog.add("FandoghVpnService", "❌ وقوع خطای شدید در سرویس: " + e.getMessage());
             showStatus("❌ خطا: " + e.getMessage());
-        } finally {
+        } finaly {
             stopVpn();
         }
     }
 
     private void generateSingBoxConfig(String link, File dir, int tunFd) throws Exception {
-        String host = "YOUR_SERVER_ADDRESS";
+        // مقادیر پیش‌فرض امن
+        String host = "127.0.0.1";
         int port = 443;
         String uuid = "00000000-0000-0000-0000-000000000000";
+        String networkType = "tcp";
+        String path = "/";
+        String sni = "google.com";
+        String hostHeader = "";
+        boolean isTls = true;
+
+        // پارسر هوشمند و بومی لینک‌های VLESS
+        try {
+            if (link != null && link.startsWith("vless://")) {
+                String clean = link.substring(8);
+                if (clean.contains("#")) {
+                    clean = clean.split("#")[0];
+                }
+                String[] parts = clean.split("@");
+                if (parts.length == 2) {
+                    uuid = parts[0];
+                    String remainder = parts[1];
+                    String[] mainAndQuery = remainder.split("\\?");
+                    String main = mainAndQuery[0];
+                    
+                    String[] hostPort = main.split(":");
+                    host = hostPort[0];
+                    if (hostPort.length == 2) {
+                        port = Integer.parseInt(hostPort[1].trim());
+                    }
+                    
+                    if (mainAndQuery.length == 2) {
+                        String query = mainAndQuery[1];
+                        String[] params = query.split("&");
+                        for (String param : params) {
+                            String[] kv = param.split("=");
+                            if (kv.length == 2) {
+                                String k = kv[0].trim();
+                                String v = android.net.Uri.decode(kv[1].trim());
+                                if ("type".equals(k)) networkType = v;
+                                if ("path".equals(k)) path = v;
+                                if ("sni".equals(k)) sni = v;
+                                if ("host".equals(k)) hostHeader = v;
+                                if ("security".equals(k) && "none".equals(v)) isTls = false;
+                            }
+                        }
+                    }
+                }
+            }
+            AppLog.add("FandoghVpnService", "لینک VLESS با موفقیت مانیتور و پارس شد. میزبان: " + host);
+        } catch (Exception e) {
+            AppLog.add("FandoghVpnService", "⚠️ خطا در پارس خودکار لینک، استفاده از مقادیر پیش‌فرض: " + e.getMessage());
+        }
+
+        // ساخت بلاک اختیاری ترنسپورت برای سرورهای وب‌ساکت (WS)
+        String transportBlock = "";
+        if ("ws".equals(networkType)) {
+            transportBlock = ",\n    \"transport\": {\n" +
+                    "      \"type\": \"ws\",\n" +
+                    "      \"path\": \"" + path + "\",\n" +
+                    "      \"headers\": {\n" +
+                    "        \"Host\": \"" + (hostHeader.isEmpty() ? host : hostHeader) + "\"\n" +
+                    "      }\n" +
+                    "    }";
+        }
+
+        String tlsBlock = "{\n" +
+                "      \"enabled\": " + isTls + ",\n" +
+                "      \"server_name\": \"" + (hostHeader.isEmpty() ? sni : hostHeader) + "\",\n" +
+                "      \"utls\": {\"enabled\": true, \"fingerprint\": \"chrome\"}\n" +
+                "    }";
+
         String json = "{\n" +
                 "  \"log\": {\"level\": \"warn\"},\n" +
                 "  \"inbounds\": [{\n" +
@@ -166,17 +233,14 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 "    \"type\": \"vless\",\n" +
                 "    \"tag\": \"proxy\",\n" +
                 "    \"server\": \"" + host + "\",\n" +
-                "    \"server_port\": " + port + ",\n" +
+                "    \"server_port\": " + port + "\n," +
                 "    \"uuid\": \"" + uuid + "\",\n" +
-                "    \"flow\": \"xtls-rprx-vision\",\n" +
                 "    \"network\": \"tcp\",\n" +
-                "    \"tls\": {\n" +
-                "      \"enabled\": true,\n" +
-                "      \"server_name\": \"google.com\",\n" +
-                "      \"utls\": {\"enabled\": true, \"fingerprint\": \"chrome\"}\n" +
-                "    }\n" +
+                "    \"tls\": " + tlsBlock +
+                transportBlock + "\n" +
                 "  }]\n" +
                 "}";
+
         File configFile = new File(dir, "config.json");
         FileOutputStream fos = new FileOutputStream(configFile);
         fos.write(json.getBytes());
@@ -205,4 +269,4 @@ public class FandoghVpnService extends VpnService implements Runnable {
             AppLog.add("FandoghVpnService", "خطا در فرآیند متوقف‌سازی سرویس: " + e.getMessage());
         }
     }
-                       }
+                    }

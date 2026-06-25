@@ -6,6 +6,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Base64;
 import android.util.Log;
+import androidx.security.crypto.EncryptedSharedPreferences;
+import androidx.security.crypto.MasterKeys;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -18,16 +20,15 @@ import javax.crypto.spec.SecretKeySpec;
 
 public class ConfigManager {
     private static final String TAG = "ConfigManager";
-    private static final String PREF_NAME = "FandoghPrefs";
-    private static final String KEY_CONFIG = "encrypted_config";
-    private static final String SECRET_KEY = "FandoghSecretKey";
-    private static final String GIST_RAW_URL = "https://gist.githubusercontent.com/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt";
+    private static final String PREF_NAME = "FandoghSecurePrefs";
+    private static final String KEY_CONFIG = "secure_config";
+    
+    private static final String GIST_RAW_URL = "https://gist.githubusercontent.com/arcaneechoes08-hub/97ed58c7ee1f162a7a0ae8608f08b25c/raw/70d01d72a367542d276e385b6fb6d914e504875a/%25D9%2584";
+    private static final String SECRET_KEY = "FandoghSecretKey"; // ۱۶ بایت دقیق
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Context context;
-
-    public ConfigManager() {}
 
     public ConfigManager(Context context) {
         this.context = context;
@@ -40,48 +41,30 @@ public class ConfigManager {
 
     public void fetchAndDecryptConfig(ConfigCallback callback) {
         if (callback == null) return;
-        
-        // لاگ شروع متد اتصال
-        AppLog.add("ConfigManager", "شروع اتصال به سرور جهت دریافت گیت...");
-        
+
         executor.execute(() -> {
             try {
                 String encryptedConfig = fetchFromGist();
-                AppLog.add("ConfigManager", "دیتا از گیت‌هاب دریافت شد. حجم کاراکتر: " + (encryptedConfig != null ? encryptedConfig.length() : 0));
-                
                 String decrypted = decrypt(encryptedConfig);
-                AppLog.add("ConfigManager", "رمزگشایی با کلید AES فندق با موفقیت انجام شد.");
                 
                 if (context != null && encryptedConfig != null) {
-                    SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+                    SharedPreferences prefs = getSecurePreferences();
                     prefs.edit().putString(KEY_CONFIG, encryptedConfig).apply();
-                    AppLog.add("ConfigManager", "کانفیگ جدید با موفقیت در حافظه کش دستگاه ذخیره شد.");
                 }
-                
                 mainHandler.post(() -> callback.onSuccess(decrypted));
-                
             } catch (Exception e) {
-                // ثبت لاگ وقوع خطا در دریافت آنلاین و ارجاع به حافظه کش
-                AppLog.add("ConfigManager", "خطای بحرانی زنجیره کانفیگ: " + e.getMessage() + " -> در حال تلاش برای بازیابی از کش داخلی...");
-                Log.w(TAG, "Gist fetch failed, trying cached config: " + e.getMessage());
-                
+                Log.w(TAG, "خطا در آنلاین، بازیابی از کش: " + e.getMessage());
                 try {
                     String cached = getCachedEncrypted();
                     if (cached != null && !cached.isEmpty()) {
-                        AppLog.add("ConfigManager", "کانفیگ قدیمی در حافظه کش یافت شد. شروع رمزگشایی نسخه کش...");
                         String decrypted = decrypt(cached);
-                        AppLog.add("ConfigManager", "رمزگشایی نسخه کش نیز با موفقیت انجام شد. استفاده از آفلاین کانفیگ.");
-                        
                         mainHandler.post(() -> callback.onSuccess(decrypted));
                         return;
-                    } else {
-                        AppLog.add("ConfigManager", "بررسی حافظه کش شکست خورد: هیچ کانفیگی از قبل ذخیره نشده است.");
                     }
-                } catch (Exception ex) {
-                    AppLog.add("ConfigManager", "خطا در فرآیند رمزگشایی حافظه کش داخلی: " + ex.getMessage());
-                }
+                } catch (Exception ignored) {}
                 
-                mainHandler.post(() -> callback.onError(e.getMessage()));
+                String errorMsg = e.getMessage();
+                mainHandler.post(() -> callback.onError(errorMsg != null ? errorMsg : "خطای ناشناخته"));
             }
         });
     }
@@ -89,56 +72,69 @@ public class ConfigManager {
     private String fetchFromGist() throws Exception {
         URL url = new URL(GIST_RAW_URL);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setRequestMethod("GET");
-        connection.setConnectTimeout(7000);
-        connection.setReadTimeout(7000);
-
-        int responseCode = connection.getResponseCode();
-        if (responseCode == HttpURLConnection.HTTP_OK) {
-            BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-            StringBuilder response = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                response.append(line);
+        try {
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(10000);
+            
+            int responseCode = connection.getResponseCode();
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                throw new Exception("کد خطای گیت‌هاب: " + responseCode);
             }
-            reader.close();
-            return response.toString().trim();
-        } else {
-            throw new Exception("کد پاسخ سرور گیت‌هاب: " + responseCode);
+            
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                StringBuilder response = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    response.append(line);
+                }
+                String result = response.toString().trim();
+                if (result.isEmpty()) throw new Exception("فایل خالی است");
+                return result;
+            }
+        } finally {
+            connection.disconnect();
         }
     }
 
-    private String getCachedEncrypted() {
+    private String getCachedEncrypted() throws Exception {
         if (context == null) return null;
-        SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        SharedPreferences prefs = getSecurePreferences();
         return prefs.getString(KEY_CONFIG, null);
     }
 
-    private String decrypt(String encryptedText) throws Exception {
-        if (encryptedText == null || encryptedText.isEmpty()) {
-            throw new Exception("متن رمزگذاری شده خالی یا پوچ است");
-        }
-        byte[] combined = Base64.decode(encryptedText, Base64.DEFAULT);
-        if (combined.length < 12) {
-            throw new Exception("سایز بایت‌های دیتا نامعتبر یا بسیار کوتاه است");
-        }
+    private SharedPreferences getSecurePreferences() throws Exception {
+        String masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC);
+        return EncryptedSharedPreferences.create(
+                PREF_NAME,
+                masterKeyAlias,
+                context,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        );
+    }
 
-        // تفکیک مقدار IV تصادفی (۱۲ بایت اول)
-        byte[] iv = new byte[12];
-        System.arraycopy(combined, 0, iv, 0, 12);
+    private static String decrypt(String encryptedData) throws Exception {
+        byte[] decoded = Base64.decode(encryptedData, Base64.DEFAULT);
+        
+        int ivSize = 12;
+        if (decoded.length <= ivSize) throw new Exception("دیتا نامعتبر است");
+        
+        // استخراج ۱۲ بایت اول به عنوان IV
+        byte[] iv = new byte[ivSize];
+        System.arraycopy(decoded, 0, iv, 0, ivSize);
+        
+        // استخراج مابقی داده‌ها به عنوان متن رمزنگاری شده
+        int cipherTextSize = decoded.length - ivSize;
+        byte[] cipherText = new byte[cipherTextSize];
+        System.arraycopy(decoded, ivSize, cipherText, 0, cipherTextSize);
 
-        // تفکیک سایفرتکست اصلی
-        int cipherTextLength = combined.length - 12;
-        byte[] cipherText = new byte[cipherTextLength];
-        System.arraycopy(combined, 12, cipherText, 0, cipherTextLength);
-
-        // تنظیمات پیشرفته لایه امنیتی استاندارد AES/GCM
         SecretKeySpec secretKey = new SecretKeySpec(SECRET_KEY.getBytes("UTF-8"), "AES");
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         GCMParameterSpec spec = new GCMParameterSpec(128, iv);
         cipher.init(Cipher.DECRYPT_MODE, secretKey, spec);
-
+        
         byte[] decryptedBytes = cipher.doFinal(cipherText);
         return new String(decryptedBytes, "UTF-8");
     }
-            }
+}

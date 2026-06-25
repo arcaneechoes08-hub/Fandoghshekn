@@ -23,7 +23,7 @@ public class ConfigManager {
     private static final String PREF_NAME = "FandoghSecurePrefs";
     private static final String KEY_CONFIG = "secure_config";
     
-    private static final String GIST_RAW_URL = "https://gist.githubusercontent.com/arcaneechoes08-hub/97ed58c7ee1f162a7a0ae8608f08b25c/raw/70d01d72a367542d276e385b6fb6d914e504875a/%25D9%2584";
+    private static final String GIST_RAW_URL = "https://gist.githubusercontent.com/arcaneechoes08-hub/360f898ab276cb083f0901cbabd4aa6a/raw/configs.txt";
     private static final String SECRET_KEY = "FandoghSecretKey"; // ۱۶ بایت دقیق
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();

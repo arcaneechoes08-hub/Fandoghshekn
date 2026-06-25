@@ -112,7 +112,10 @@ public class MainActivity extends AppCompatActivity {
                 try {
                     Intent vpnIntent = new Intent(this, FandoghVpnService.class);
                     vpnIntent.setAction("START");
-                    vpnIntent.putExtra("COMMAND_CONFIG", v2rayConfig);
+                    
+                    // 🚨 تنها مشکلی که باعث میشد آیکون نیاد و کار نکنه همین یک خط بود!
+                    // اسم متغیر رو به VLESS_LINK تغییر دادم تا با FandoghVpnService جدیدت مچ بشه.
+                    vpnIntent.putExtra("VLESS_LINK", v2rayConfig); 
                     
                     AppLog.add("MainActivity", "در حال استارت سرویس پیش‌زمینه (Foreground Service)...");
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -154,5 +157,4 @@ public class MainActivity extends AppCompatActivity {
         Toast.makeText(this, "فندق‌شکن متوقف شد.", Toast.LENGTH_SHORT).show();
         AppLog.add("MainActivity", "وضعیت اپلیکیشن به حالت قطع کامل تغییر یافت.");
     }
-                }
-                        
+                            }

@@ -3,14 +3,19 @@ plugins {
 }
 
 android {
-    namespace 'com.fandogh.shekan'
-    compileSdk 34
+    ...
+    defaultConfig { ... }
 
-    defaultConfig {
-        applicationId "com.fandogh.shekan"
-        minSdk 24
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+    // این بلاک رو چک کن یا اضافه کن که مطمئن بشیم jniLibs رو می‌شناسه
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 }

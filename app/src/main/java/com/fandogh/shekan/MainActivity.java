@@ -2,190 +2,189 @@ package com.fandogh.shekan;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.Signature;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Base64;
+import android.util.Log;
 import android.widget.Button;
-import android.widget.ScrollView;
-import android.widget.TextView;
 import android.widget.Toast;
+import java.security.MessageDigest;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.appcompat.app.AppCompatActivity;
-
-public class MainActivity extends AppCompatActivity {
-
-    private Button btnConnect;
+public class MainActivity extends Activity {
     private boolean isConnected = false;
-    private String v2rayConfig = "";
+    private Button btnConnect;
     private ConfigManager configManager;
-    
-    // المان‌های مربوط به بخش مانیتورینگ و لاگ موقت
-    private TextView txtLogs;
-    private ScrollView logScrollView;
+    private PingManager pingManager;
+    private String mDecryptedConfig;
 
-    // راه‌انداز مدرن برای جایگزینی onActivityResult (جهت دریافت مجوز VPN)
-    private ActivityResultLauncher<Intent> vpnPermissionLauncher;
+    // هش امضای نهایی شما (SHA-256)
+    private static final String EXPECTED_SIGNATURE = "YOUR_REAL_SIGNATURE_HASH_HERE";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
 
-        btnConnect = findViewById(R.id.btnConnect);
-        configManager = new ConfigManager(this);
-        
-        txtLogs = findViewById(R.id.txtLogs);
-        logScrollView = findViewById(R.id.logScrollView);
-
-        // ثبت راه‌انداز (Launcher) برای دریافت نتیجه مجوز از سیستم‌عامل
-        registerVpnPermissionLauncher();
-
-        // بازیابی لاگ‌های قبلی حافظه و تنظیم لیسنر زنده
-        if (txtLogs != null) {
-            txtLogs.setText(AppLog.getAllLogs());
+        if (!checkAppSignature()) {
+            Toast.makeText(this, "خطای امنیتی: برنامه دستکاری شده است!", Toast.LENGTH_LONG).show();
+            finishAffinity();
+            System.exit(0);
+            return;
         }
-        
-        AppLog.setListener(new AppLog.LogListener() {
-            @Override
-            public void onLogAdded(String newLog) {
-                if (txtLogs != null && logScrollView != null) {
-                    runOnUiThread(() -> {
-                        txtLogs.append(newLog + "\n");
-                        logScrollView.post(() -> logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
-                    });
-                }
-            }
-        });
 
-        AppLog.add("MainActivity", "رابط کاربری برنامه فندق‌شکن لود شد.");
+        setContentView(R.layout.activity_main);
+        btnConnect = findViewById(R.id.btnConnect);
+        configManager = new ConfigManager(getApplicationContext());
+        pingManager = new PingManager();
 
         btnConnect.setOnClickListener(v -> {
-            AppLog.add("MainActivity", "دکمه اتصال فشرده شد. وضعیت فعلی اتصال: " + isConnected);
-
             if (!isConnected) {
-                btnConnect.setEnabled(false);
-                btnConnect.setText("در حال رمزگشایی و اتصال...");
-                AppLog.add("MainActivity", "شروع فرآیند اتصال و درخواست کانفیگ از سرویس مدیریت...");
-
-                configManager.fetchAndDecryptConfig(new ConfigManager.ConfigCallback() {
-                    @Override
-                    public void onSuccess(String decryptedConfig) {
-                        v2rayConfig = decryptedConfig;
-                        AppLog.add("MainActivity", "موفقیت: کانفیگ دریافت و رمزگشایی شد.");
-                        runOnUiThread(() -> {
-                            btnConnect.setEnabled(true);
-                            startFandoghVpn();
-                        });
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        AppLog.add("MainActivity", "خطا در فرآیند کانفیگ: " + error);
-                        runOnUiThread(() -> {
-                            btnConnect.setEnabled(true);
-                            btnConnect.setText("اتصال به فندق‌شکن");
-                            Toast.makeText(MainActivity.this, "❌ " + error, Toast.LENGTH_LONG).show();
-                        });
-                    }
-                });
+                startFetchingConfig();
             } else {
-                AppLog.add("MainActivity", "درخواست قطع اتصال توسط کاربر صادر شد.");
-                stopFandoghVpn();
+                stopFandoghShekan();
             }
         });
     }
 
-    /**
-     * ثبت و مقداردهی مدیریت مجوز سیستم برای ساخت تونل
-     */
-    private void registerVpnPermissionLauncher() {
-        vpnPermissionLauncher = registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() == Activity.RESULT_OK) {
-                        AppLog.add("MainActivity", "تایید مجوز VpnService توسط کاربر انجام شد.");
-                        startVpnServiceForeground();
-                    } else {
-                        // رفع باگ: بازگرداندن وضعیت دکمه در صورت رد شدن مجوز
-                        AppLog.add("MainActivity", "خطا: کاربر مجوز ساخت تونل VPN را رد کرد.");
-                        btnConnect.setText("اتصال به فندق‌شکن");
-                        btnConnect.setEnabled(true);
-                    }
-                });
-    }
-
-    private void startFandoghVpn() {
-        AppLog.add("MainActivity", "در حال بررسی و آماده‌سازی سیستم عامل برای مجوز تونل VPN...");
-        Intent intent = VpnService.prepare(this);
-        if (intent != null) {
-            AppLog.add("MainActivity", "درخواست مجوز سیستم عامل برای ساخت تونل نمایش داده شد.");
-            // استفاده از لانچر مدرن به جای startActivityForResult
-            vpnPermissionLauncher.launch(intent);
-        } else {
-            AppLog.add("MainActivity", "مجوز سیستم عامل از قبل صادر شده است. عبور مستقیم به اجرای سرویس.");
-            startVpnServiceForeground();
-        }
-    }
-
-    /**
-     * استارت کردن سرویس پس از اطمینان از وجود مجوز
-     */
-    private void startVpnServiceForeground() {
+    private boolean checkAppSignature() {
         try {
-            Intent vpnIntent = new Intent(this, FandoghVpnService.class);
-            vpnIntent.setAction("START");
-            vpnIntent.putExtra("VLESS_LINK", v2rayConfig);
-            
-            AppLog.add("MainActivity", "در حال استارت سرویس پیش‌زمینه (Foreground Service)...");
-            
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(vpnIntent);
+            if ("YOUR_REAL_SIGNATURE_HASH_HERE".equals(EXPECTED_SIGNATURE)) {
+                return true; 
+            }
+            PackageInfo packageInfo;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
+                Signature[] signatures = packageInfo.signingInfo.getApkContentsSigners();
+                for (Signature signature : signatures) {
+                    if (verifyHash(signature)) return true;
+                }
             } else {
-                startService(vpnIntent);
+                packageInfo = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_SIGNATURES);
+                for (Signature signature : packageInfo.signatures) {
+                    if (verifyHash(signature)) return true;
+                }
+            }
+        } catch (Exception e) {
+            Log.e("Security", "خطا در ارزیابی امضا سیستم", e);
+        }
+        return false;
+    }
+
+    private boolean verifyHash(Signature signature) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        md.update(signature.toByteArray());
+        String currentSignature = Base64.encodeToString(md.digest(), Base64.DEFAULT).trim();
+        return currentSignature.equals(EXPECTED_SIGNATURE);
+    }
+
+    private void startFetchingConfig() {
+        btnConnect.setText("در حال دریافت کانفیگ...");
+        btnConnect.setBackgroundColor(0xFF2196F3);
+        btnConnect.setEnabled(false);
+
+        configManager.fetchAndDecryptConfig(new ConfigManager.ConfigCallback() {
+            @Override
+            public void onSuccess(String decryptedConfig) {
+                btnConnect.setText("در حال تست پینگ سرور...");
+                parseAndPing(decryptedConfig);
             }
 
-            isConnected = true;
-            btnConnect.setText("متصل شد 🌰 (قطع اتصال)");
-            Toast.makeText(this, "فندق‌شکن فعال شد!", Toast.LENGTH_SHORT).show();
-            AppLog.add("MainActivity", "سرویس فندق‌شکن با موفقیت در سیستم ثبت و فعال گردید.");
-            
-        } catch (Exception e) {
-            // هندل کردن ارورهای محدودیت سرویس پس‌زمینه در اندروید ۱۲ به بالا
-            AppLog.add("MainActivity", "خطای شدید در متد استارت سرویس: " + e.getMessage());
-            Toast.makeText(this, "خطا در استارت سرویس فندق‌شکن", Toast.LENGTH_LONG).show();
-            
-            // ریست کردن وضعیت دکمه
-            btnConnect.setText("اتصال به فندق‌شکن");
-            btnConnect.setEnabled(true);
-            isConnected = false;
-        }
+            @Override
+            public void onError(String error) {
+                resetButton(error, 0xFFF44336);
+            }
+        });
     }
 
-    private void stopFandoghVpn() {
-        AppLog.add("MainActivity", "شروع فرآیند توقف سرویس فندق‌شکن...");
+    private void parseAndPing(String config) {
         try {
-            Intent vpnIntent = new Intent(this, FandoghVpnService.class);
-            vpnIntent.setAction("STOP");
-            // رفع باگ کرش اندروید 8+: برای متوقف کردن سرویس فقط از startService استفاده می‌کنیم
-            startService(vpnIntent);
-            AppLog.add("MainActivity", "سیگنال توقف (STOP) به سرویس ارسال شد.");
+            if (config == null) throw new Exception("کانفیگ خالی است");
+            config = config.trim();
+
+            if (!config.startsWith("vless://")) {
+                throw new Exception("لینک vless معتبر نیست");
+            }
+
+            this.mDecryptedConfig = config;
+            String uriBody = config.substring(8);
+            int atIndex = uriBody.lastIndexOf("@");
+            if (atIndex == -1) throw new Exception("علامت @ پیدا نشد");
+            String serverPart = uriBody.substring(atIndex + 1);
+            String[] mainParts = serverPart.split("[?#]");
+            String hostAndPort = mainParts[0];
+
+            int colonIndex = hostAndPort.lastIndexOf(":");
+            if (colonIndex == -1) throw new Exception("پورت سرور پیدا نشد");
+
+            String host = hostAndPort.substring(0, colonIndex).trim();
+            String portStr = hostAndPort.substring(colonIndex + 1).trim();
+            int port = Integer.parseInt(portStr);
+
+            pingManager.checkTcpPing(host, port, new PingManager.PingCallback() {
+                @Override
+                public void onResult(long latencyMs) {
+                    Toast.makeText(MainActivity.this, "پینگ سرور: " + latencyMs + "ms", Toast.LENGTH_SHORT).show();
+                    Intent intent = VpnService.prepare(MainActivity.this);
+                    if (intent != null) {
+                        startActivityForResult(intent, 0);
+                    } else {
+                        onActivityResult(0, RESULT_OK, null);
+                    }
+                }
+
+                @Override
+                public void onError(String error) {
+                    resetButton("سرور قطع است (Timeout)", 0xFFE91E63);
+                }
+            });
         } catch (Exception e) {
-            AppLog.add("MainActivity", "خطا در متد توقف سرویس: " + e.getMessage());
+            String preview = "";
+            if (config != null) {
+                int end = Math.min(config.length(), 25);
+                preview = " -> [" + config.substring(0, end) + "]";
+            }
+            resetButton("خطا: " + e.getMessage() + preview, 0xFFF44336);
         }
-        
-        isConnected = false;
-        btnConnect.setText("اتصال به فندق‌شکن");
-        Toast.makeText(this, "فندق‌شکن متوقف شد.", Toast.LENGTH_SHORT).show();
-        AppLog.add("MainActivity", "وضعیت اپلیکیشن به حالت قطع کامل تغییر یافت.");
     }
 
     @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        // رفع مشکل نشت حافظه (Memory Leak)
-        AppLog.setListener(null); 
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode == RESULT_OK) {
+            Intent intent = new Intent(this, FandoghVpnService.class);
+            intent.putExtra("VLESS_LINK", mDecryptedConfig);
+            
+            // 🚨 حل مشکل کرش اندروید ۸ به بالا برای استارت سرویس 🚨
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent);
+            } else {
+                startService(intent);
+            }
+            
+            btnConnect.setEnabled(true);
+            btnConnect.setText("فندق‌شکن فعال است 🛡️");
+            btnConnect.setBackgroundColor(0xFF4CAF50);
+            isConnected = true;
+        } else {
+            resetButton("عدم تایید مجوز VPN", 0xFFF44336);
+        }
+    }
+
+    private void stopFandoghShekan() {
+        Intent intent = new Intent(this, FandoghVpnService.class);
+        intent.setAction("STOP");
+        startService(intent); // برای استاپ استثنائا همین startService صحیح است
+        resetButton("اتصال هوشمند", 0xFFFF9800);
+    }
+
+    private void resetButton(String text, int color) {
+        btnConnect.setEnabled(true);
+        btnConnect.setText(text);
+        btnConnect.setBackgroundColor(color);
+        isConnected = false;
     }
     }
-                           
+                        

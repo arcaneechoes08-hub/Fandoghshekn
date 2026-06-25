@@ -143,7 +143,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
             Log.e(TAG, "خطا: " + e.getMessage());
             AppLog.add("FandoghVpnService", "❌ وقوع خطای شدید در سرویس: " + e.getMessage());
             showStatus("❌ خطا: " + e.getMessage());
-        } finaly {
+        } finally {
             stopVpn();
         }
     }
@@ -269,4 +269,5 @@ public class FandoghVpnService extends VpnService implements Runnable {
             AppLog.add("FandoghVpnService", "خطا در فرآیند متوقف‌سازی سرویس: " + e.getMessage());
         }
     }
-                    }
+                        }
+    

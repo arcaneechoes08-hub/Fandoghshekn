@@ -40,27 +40,47 @@ public class ConfigManager {
 
     public void fetchAndDecryptConfig(ConfigCallback callback) {
         if (callback == null) return;
+        
+        // لاگ شروع متد اتصال
+        AppLog.add("ConfigManager", "شروع اتصال به سرور جهت دریافت گیت...");
+        
         executor.execute(() -> {
             try {
                 String encryptedConfig = fetchFromGist();
+                AppLog.add("ConfigManager", "دیتا از گیت‌هاب دریافت شد. حجم کاراکتر: " + (encryptedConfig != null ? encryptedConfig.length() : 0));
+                
                 String decrypted = decrypt(encryptedConfig);
+                AppLog.add("ConfigManager", "رمزگشایی با کلید AES فندق با موفقیت انجام شد.");
+                
                 if (context != null && encryptedConfig != null) {
                     SharedPreferences prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
                     prefs.edit().putString(KEY_CONFIG, encryptedConfig).apply();
+                    AppLog.add("ConfigManager", "کانفیگ جدید با موفقیت در حافظه کش دستگاه ذخیره شد.");
                 }
+                
                 mainHandler.post(() -> callback.onSuccess(decrypted));
+                
             } catch (Exception e) {
+                // ثبت لاگ وقوع خطا در دریافت آنلاین و ارجاع به حافظه کش
+                AppLog.add("ConfigManager", "خطای بحرانی زنجیره کانفیگ: " + e.getMessage() + " -> در حال تلاش برای بازیابی از کش داخلی...");
                 Log.w(TAG, "Gist fetch failed, trying cached config: " + e.getMessage());
+                
                 try {
                     String cached = getCachedEncrypted();
                     if (cached != null && !cached.isEmpty()) {
+                        AppLog.add("ConfigManager", "کانفیگ قدیمی در حافظه کش یافت شد. شروع رمزگشایی نسخه کش...");
                         String decrypted = decrypt(cached);
+                        AppLog.add("ConfigManager", "رمزگشایی نسخه کش نیز با موفقیت انجام شد. استفاده از آفلاین کانفیگ.");
+                        
                         mainHandler.post(() -> callback.onSuccess(decrypted));
                         return;
+                    } else {
+                        AppLog.add("ConfigManager", "بررسی حافظه کش شکست خورد: هیچ کانفیگی از قبل ذخیره نشده است.");
                     }
                 } catch (Exception ex) {
-                    // ignore
+                    AppLog.add("ConfigManager", "خطا در فرآیند رمزگشایی حافظه کش داخلی: " + ex.getMessage());
                 }
+                
                 mainHandler.post(() -> callback.onError(e.getMessage()));
             }
         });
@@ -84,7 +104,7 @@ public class ConfigManager {
             reader.close();
             return response.toString().trim();
         } else {
-            throw new Exception("کد سرور: " + responseCode);
+            throw new Exception("کد پاسخ سرور گیت‌هاب: " + responseCode);
         }
     }
 
@@ -96,11 +116,11 @@ public class ConfigManager {
 
     private String decrypt(String encryptedText) throws Exception {
         if (encryptedText == null || encryptedText.isEmpty()) {
-            throw new Exception("متن رمزگذاری شده خالی است");
+            throw new Exception("متن رمزگذاری شده خالی یا پوچ است");
         }
         byte[] combined = Base64.decode(encryptedText, Base64.DEFAULT);
         if (combined.length < 12) {
-            throw new Exception("دیتا نامعتبر یا خیلی کوتاه است");
+            throw new Exception("سایز بایت‌های دیتا نامعتبر یا بسیار کوتاه است");
         }
 
         // تفکیک مقدار IV تصادفی (۱۲ بایت اول)
@@ -112,7 +132,7 @@ public class ConfigManager {
         byte[] cipherText = new byte[cipherTextLength];
         System.arraycopy(combined, 12, cipherText, 0, cipherTextLength);
 
-        // رمزگشایی پیشرفته لایه امنیتی GCM
+        // تنظیمات پیشرفته لایه امنیتی استاندارد AES/GCM
         SecretKeySpec secretKey = new SecretKeySpec(SECRET_KEY.getBytes("UTF-8"), "AES");
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         GCMParameterSpec spec = new GCMParameterSpec(128, iv);
@@ -121,5 +141,4 @@ public class ConfigManager {
         byte[] decryptedBytes = cipher.doFinal(cipherText);
         return new String(decryptedBytes, "UTF-8");
     }
-        }
-                        
+            }

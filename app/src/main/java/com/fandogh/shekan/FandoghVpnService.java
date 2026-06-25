@@ -11,8 +11,10 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 import android.widget.Toast;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStreamReader;
 
 public class FandoghVpnService extends VpnService implements Runnable {
     private static final String TAG = "FandoghVpnService";
@@ -29,7 +31,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // ایجاد و فعال‌سازی فوری نوتیفیکیشن جهت جلوگیری از کرش سيستم
+        // ایجاد و فعال‌سازی فوری نوتیفیکیشن جهت جلوگیری از کرش سیستم
         startForegroundNotification();
 
         String action = intent != null ? intent.getAction() : "null";
@@ -132,13 +134,22 @@ public class FandoghVpnService extends VpnService implements Runnable {
             };
             
             AppLog.add("FandoghVpnService", "دستور فرستاده شد: " + coreBin.getAbsolutePath());
-            mCoreProcess = Runtime.getRuntime().exec(cmd);
             
-            AppLog.add("FandoghVpnService", "پروسس باینری با موفقیت لود شد و در حال پردازش پکت‌هاست.");
+            // استفاده از ProcessBuilder جهت ادغام لوله‌های خروجی لاگ استاندارد و خطا
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.redirectErrorStream(true);
+            mCoreProcess = pb.start();
             
-            while (mThread != null && !mThread.isInterrupted()) {
-                Thread.sleep(1000);
+            AppLog.add("FandoghVpnService", "پروسس باینری لود شد. سیستم پایش هوشمند ترافیک فعال گردید.");
+            
+            // خواندن خط به خط و زنده لاگ‌های تولید شده توسط هسته
+            BufferedReader reader = new BufferedReader(new InputStreamReader(mCoreProcess.getInputStream(), "UTF-8"));
+            String line;
+            while (mThread != null && !mThread.isInterrupted() && (line = reader.readLine()) != null) {
+                String smartLog = analyzeLogSmartly(line);
+                AppLog.add("FandoghVpnService", smartLog);
             }
+            
         } catch (Exception e) {
             Log.e(TAG, "خطا: " + e.getMessage());
             AppLog.add("FandoghVpnService", "❌ وقوع خطای شدید در سرویس: " + e.getMessage());
@@ -146,6 +157,30 @@ public class FandoghVpnService extends VpnService implements Runnable {
         } finally {
             stopVpn();
         }
+    }
+
+    /**
+     * سیستم مانیتور و تحلیل هوشمند متون لاگ لایه شبکه هسته فندق‌شکن
+     */
+    public String analyzeLogSmartly(String rawLog) {
+        String lowerLog = rawLog.toLowerCase();
+        
+        if (lowerLog.contains("context deadline exceeded") || lowerLog.contains("connection refused") || lowerLog.contains("dial tcp")) {
+            return "❌ [خطای شبکه]: ارتباط با سرور برقرار نشد! احتمالاً IP سرور فیلتر شده یا اینترنت شما بشدت ضعیف است.";
+        }
+        if (lowerLog.contains("bad handshake") || lowerLog.contains("handshake failed") || lowerLog.contains("authentication failed")) {
+            return "🔑 [خطای اعتبار سنجی]: مشخصات کانفیگ یا کلید Reality اشتباه است. سرور دسترسی را رد کرد.";
+        }
+        if (lowerLog.contains("tun interface") && (lowerLog.contains("broken pipe") || lowerLog.contains("failed to open"))) {
+            return "🔌 [خطای سیستم‌عامل]: کارت شبکه مجازی (TUN) اندروید مسدود یا قطع شد.";
+        }
+        if (lowerLog.contains("proxy connection opened") || lowerLog.contains("tcp:connect") || lowerLog.contains("inbound/tun")) {
+            return "✅ [ترافیک زنده]: دیتای درخواستی گوشی رمزگشایی و با موفقیت از تونل عبور کرد.";
+        }
+        if (lowerLog.contains("rejected") || lowerLog.contains("blocked")) {
+            return "🚫 [مسدود شده]: ترافیک این وب‌سایت طبق فرآیند قوانین کانفیگ شما مسدود شده است.";
+        }
+        return rawLog;
     }
 
     private void generateSingBoxConfig(String link, File dir, int tunFd) throws Exception {
@@ -220,8 +255,9 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 "      \"utls\": {\"enabled\": true, \"fingerprint\": \"chrome\"}\n" +
                 "    }";
 
+        // تغییر لول لاگ از warn به info جهت امکان رصد دقیق فرآیند هندشیک شبکه
         String json = "{\n" +
-                "  \"log\": {\"level\": \"warn\"},\n" +
+                "  \"log\": {\"level\": \"info\"},\n" +
                 "  \"inbounds\": [{\n" +
                 "    \"type\": \"tun\",\n" +
                 "    \"tag\": \"tun-in\",\n" +
@@ -262,12 +298,11 @@ public class FandoghVpnService extends VpnService implements Runnable {
             if (mInterface != null) {
                 mInterface.close();
                 mInterface = null;
-                AppLog.add("FandoghVpnService", "رابط مجاری تونل لایه ۳ (Tun Fd) با موفقیت بسته شد.");
+                AppLog.add("FandoghVpnService", "رابط مجازی تونل لایه ۳ (Tun Fd) با موفقیت بسته شد.");
             }
         } catch (Exception e) {
             Log.e(TAG, "خطا در توقف: " + e.getMessage());
             AppLog.add("FandoghVpnService", "خطا در فرآیند متوقف‌سازی سرویس: " + e.getMessage());
         }
     }
-                        }
-    
+}

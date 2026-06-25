@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config>
+        <domain includeSubdomains="true">gist.githubusercontent.com</domain>
+        <pin-set>
+            <pin digest="SHA-256">k2v657xBsOVe1P9vPnG6wEcxDGw6Ok6w0I=</pin>
+            <pin digest="SHA-256">WoiH6wEcxDGw6Ok6w0ICuzZsS8IFTmNkOAM=</pin>
+        </pin-set>
+    </domain-config>
+</network-security-config>

@@ -27,7 +27,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         btnConnect = findViewById(R.id.btnConnect);
-        configManager = new ConfigManager();
+        configManager = new ConfigManager(this);
         
         // مقداردهی کامپوننت‌های رابط کاربری مانیتورینگ
         txtLogs = findViewById(R.id.txtLogs);
@@ -42,9 +42,11 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onLogAdded(String newLog) {
                 if (txtLogs != null && logScrollView != null) {
-                    txtLogs.append(newLog + "\n");
-                    // اسکرول هوشمند به انتهای خطوط لاگ به محض دریافت رویداد جدید
-                    logScrollView.post(() -> logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+                    runOnUiThread(() -> {
+                        txtLogs.append(newLog + "\n");
+                        // اسکرول هوشمند به انتهای خطوط لاگ به محض دریافت رویداد جدید
+                        logScrollView.post(() -> logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+                    });
                 }
             }
         });
@@ -53,7 +55,7 @@ public class MainActivity extends AppCompatActivity {
         AppLog.add("MainActivity", "رابط کاربری برنامه فندق‌شکن لود شد.");
 
         btnConnect.setOnClickListener(v -> {
-            // 🛑 دقیقا اولین اکشن پس از کلیک: ثبت آنی وضعیت فعلی فلگ اتصال
+            // دقیقا اولین اکشن پس از کلیک: ثبت آنی وضعیت فعلی فلگ اتصال
             AppLog.add("MainActivity", "دکمه اتصال فشرده شد. وضعیت فعلی اتصال: " + isConnected);
 
             if (!isConnected) {
@@ -122,5 +124,35 @@ public class MainActivity extends AppCompatActivity {
                     isConnected = true;
                     btnConnect.setText("متصل شد 🌰 (قطع اتصال)");
                     Toast.makeText(this, "فندق‌شکن فعال شد!", Toast.LENGTH_SHORT).show();
-                    AppLog.add("MainActivity", "س
+                    AppLog.add("MainActivity", "سرویس فندق‌شکن با موفقیت در سیستم ثبت و فعال گردید.");
+                } catch (Exception e) {
+                    AppLog.add("MainActivity", "خطای شدید در متد استارت سرویس: " + e.getMessage());
+                    Toast.makeText(this, "خطا در استارت سرویس فندق‌شکن", Toast.LENGTH_LONG).show();
+                }
+            } else {
+                AppLog.add("MainActivity", "خطا: کاربر مجوز ساخت تونل VPN را رد کرد.");
+            }
+        }
+    }
+
+    private void stopFandoghVpn() {
+        AppLog.add("MainActivity", "شروع فرآیند توقف سرویس فندق‌شکن...");
+        try {
+            Intent vpnIntent = new Intent(this, FandoghVpnService.class);
+            vpnIntent.setAction("STOP");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(vpnIntent);
+            } else {
+                startService(vpnIntent);
+            }
+            AppLog.add("MainActivity", "سیگنال توقف (STOP) به سرویس ارسال شد.");
+        } catch (Exception e) {
+            AppLog.add("MainActivity", "خطا در متد توقف سرویس: " + e.getMessage());
+        }
+        isConnected = false;
+        btnConnect.setText("اتصال به فندق‌شکن");
+        Toast.makeText(this, "فندق‌شکن متوقف شد.", Toast.LENGTH_SHORT).show();
+        AppLog.add("MainActivity", "وضعیت اپلیکیشن به حالت قطع کامل تغییر یافت.");
+    }
+                }
                         

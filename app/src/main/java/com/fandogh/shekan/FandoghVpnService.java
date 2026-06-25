@@ -29,6 +29,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
     static {
         System.loadLibrary("native-lib");
     }
+    
     public static native int startCoreNative(String corePath, String configPath, int tunFd);
     public static native void stopCoreNative();
 
@@ -75,20 +76,27 @@ public class FandoghVpnService extends VpnService implements Runnable {
         try {
             showStatus("🔍 بارگذاری هسته هوشمند...");
             String nativeDir = getApplicationInfo().nativeLibraryDir;
+            
+            // ⚠️ نکته: اگر باینری شما Sing-box است، بهتر است نام آن را به libsingbox.so تغییر دهید.
+            // در غیر این صورت همین libxray.so باقی بماند.
             File coreBin = new File(nativeDir, "libxray.so");
             if (!coreBin.exists()) {
                 throw new Exception("هسته سیستمی یافت نشد!");
             }
+            coreBin.setExecutable(true);
 
             File baseDir = getFilesDir();
             showStatus("⚙️ تنظیم مسیریابی ترافیک لایه ۳...");
 
             Builder builder = new Builder();
             mInterface = builder.setSession("FandoghShekan")
+                    .setMtu(1500) // تنظیم MTU برای جلوگیری از دراپ پکت
                     .addAddress("172.19.0.1", 30)
+                    .addAddress("fd00:1:2:3::1", 126) // پشتیبانی از IPv6
                     .addDnsServer("1.1.1.1")
                     .addDnsServer("8.8.8.8")
-                    .addRoute("0.0.0.0", 0) 
+                    .addRoute("0.0.0.0", 0)
+                    .addRoute("::", 0) // روت کردن کل ترافیک IPv6
                     .addDisallowedApplication(getPackageName())
                     .establish();
 
@@ -97,7 +105,9 @@ public class FandoghVpnService extends VpnService implements Runnable {
             }
 
             int fd = mInterface.getFd();
-            generateSingBoxConfig(mVlessLink, baseDir, fd);
+            
+            // 👈 فراخوانی متد جدید برای ساخت فایل config.json
+            generateCoreConfig(mVlessLink, baseDir, fd);
             showStatus("🚀 فندق‌شکن متصل شد و ترافیک ایمن گردید.");
 
             // 🚨 فراخوانی ایمن از طریق C++ (JNI) به جای ProcessBuilder
@@ -107,6 +117,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
             while (!Thread.currentThread().isInterrupted()) {
                 Thread.sleep(5000);
             }
+            
         } catch (InterruptedException e) {
             // خروج امن از حلقه
         } catch (Exception e) {
@@ -117,80 +128,75 @@ public class FandoghVpnService extends VpnService implements Runnable {
         }
     }
 
-    private void generateSingBoxConfig(String link, File dir, int tunFd) throws Exception {
-        // [کدهای این متد دقیقاً همان چیزی است که نوشته بودید و مشکلی ندارد]
-        // به دلیل طولانی شدن پیام، از تکرار آن خودداری کردم.
-        // فقط دقت کنید که تمام منطق JSON که در پیام قبلی‌تان فرستادید را اینجا حفظ کنید.
-        
-        String host = "127.0.0.1";
-        int port = 443;
-        String uuid = "00000000-0000-0000-0000-000000000000";
-        String type = "tcp";
-        String security = "tls";
-        String sni = "google.com";
-        String fp = "chrome";
-        String flow = "";
-        String path = "/";
-        String wsHost = "";
-
-        if (link != null && link.startsWith("vless://")) {
-            try {
-                String current = link.substring(8);
-                String[] hashSplit = current.split("#", 2);
-                String[] querySplit = hashSplit[0].split("\\?", 2);
-                String credentials = querySplit[0];
-                String query = querySplit.length > 1 ? querySplit[1] : "";
-
-                int atIdx = credentials.lastIndexOf("@");
-                if (atIdx != -1) {
-                    uuid = credentials.substring(0, atIdx);
-                    String serverPart = credentials.substring(atIdx + 1);
-                    int cIdx = serverPart.lastIndexOf(":");
-                    if (cIdx != -1) {
-                        host = serverPart.substring(0, cIdx).trim();
-                        port = Integer.parseInt(serverPart.substring(cIdx + 1).trim());
-                    }
-                }
-
-                if (!query.isEmpty()) {
-                    for (String pair : query.split("&")) {
-                        int idx = pair.indexOf("=");
-                        if (idx == -1) continue;
-                        String key = pair.substring(0, idx);
-                        String val = java.net.URLDecoder.decode(pair.substring(idx + 1), "UTF-8");
-                        switch (key) {
-                            case "type": type = val; break;
-                            case "security": security = val; break;
-                            case "sni": sni = val; break;
-                            case "fp": fp = val; break;
-                            case "path": path = val; break;
-                            case "host": wsHost = val; break;
-                            case "flow": flow = val; break;
-                        }
-                    }
-                }
-                if (sni.isEmpty() && !wsHost.isEmpty()) sni = wsHost;
-                if (sni.isEmpty()) sni = host;
-            } catch (Exception e) {
-                Log.e(TAG, "خطا در پردازش لینک: " + e.getMessage());
-            }
+    private void generateCoreConfig(String link, File baseDir, int tunFd) throws Exception {
+        if (link == null || !link.startsWith("vless://")) {
+            throw new Exception("لینک کانفیگ نامعتبر است (فقط vless پشتیبانی می‌شود).");
         }
 
+        // متغیرهای پیش‌فرض
+        String host = "", uuid = "", security = "none", type = "tcp", path = "/", sni = "", wsHost = "", fp = "";
+        int port = 443;
+
+        // --- ۱. استخراج اطلاعات از لینک VLESS ---
+        try {
+            String uriBody = link.substring(8);
+            int hashIdx = uriBody.indexOf("#");
+            if (hashIdx != -1) uriBody = uriBody.substring(0, hashIdx); // حذف نام نمایشی
+
+            String[] querySplit = uriBody.split("\\?", 2);
+            String credentialsAndServer = querySplit[0];
+            String queryParams = querySplit.length > 1 ? querySplit[1] : "";
+
+            int atIdx = credentialsAndServer.lastIndexOf("@");
+            uuid = credentialsAndServer.substring(0, atIdx);
+            String serverPart = credentialsAndServer.substring(atIdx + 1);
+
+            int colonIdx = serverPart.lastIndexOf(":");
+            host = serverPart.substring(0, colonIdx);
+            port = Integer.parseInt(serverPart.substring(colonIdx + 1));
+
+            if (!queryParams.isEmpty()) {
+                for (String param : queryParams.split("&")) {
+                    String[] kv = param.split("=");
+                    if (kv.length < 2) continue;
+                    String key = kv[0];
+                    String val = java.net.URLDecoder.decode(kv[1], "UTF-8");
+
+                    switch (key) {
+                        case "type": type = val; break;
+                        case "security": security = val; break;
+                        case "sni": sni = val; break;
+                        case "host": wsHost = val; break;
+                        case "path": path = val; break;
+                        case "fp": fp = val; break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new Exception("خطا در پارس کردن لینک vless");
+        }
+
+        // --- ۲. ساخت ساختار JSON ---
         JSONObject root = new JSONObject();
+
+        // تنظیمات Log
         JSONObject log = new JSONObject();
         log.put("level", "warn");
         root.put("log", log);
 
+        // تنظیمات Inbound (گرفتن ترافیک از تونل اندروید)
         JSONArray inbounds = new JSONArray();
         JSONObject tunIn = new JSONObject();
         tunIn.put("type", "tun");
         tunIn.put("tag", "tun-in");
         tunIn.put("interface_name", "tun0");
-        tunIn.put("fd", tunFd);
-        tunIn.put("accept_proxy_protocol", false);
+        tunIn.put("fd", tunFd); // 💥 اختصاص فایل دیسکریپتور VPN به هسته
+        tunIn.put("auto_route", true);
+        tunIn.put("strict_route", true);
         inbounds.put(tunIn);
         root.put("inbounds", inbounds);
 
+        // تنظیمات Outbound (ارسال ترافیک به سرور)
         JSONArray outbounds = new JSONArray();
         JSONObject vlessOut = new JSONObject();
         vlessOut.put("type", "vless");
@@ -198,20 +204,17 @@ public class FandoghVpnService extends VpnService implements Runnable {
         vlessOut.put("server", host);
         vlessOut.put("server_port", port);
         vlessOut.put("uuid", uuid);
-        vlessOut.put("network", type);
-
-        if (!flow.isEmpty() && "tcp".equals(type)) {
-            vlessOut.put("flow", flow);
-        }
 
         if ("tls".equals(security) || "reality".equals(security)) {
             JSONObject tls = new JSONObject();
             tls.put("enabled", true);
-            tls.put("server_name", sni);
-            JSONObject utls = new JSONObject();
-            utls.put("enabled", true);
-            utls.put("fingerprint", fp);
-            tls.put("utls", utls);
+            tls.put("server_name", sni.isEmpty() ? host : sni);
+            if (!fp.isEmpty()) {
+                JSONObject utls = new JSONObject();
+                utls.put("enabled", true);
+                utls.put("fingerprint", fp);
+                tls.put("utls", utls);
+            }
             vlessOut.put("tls", tls);
         }
 
@@ -230,11 +233,12 @@ public class FandoghVpnService extends VpnService implements Runnable {
         outbounds.put(vlessOut);
         root.put("outbounds", outbounds);
 
-        File configFile = new File(dir, "config.json");
-        FileOutputStream fos = new FileOutputStream(configFile);
-        fos.write(root.toString(2).getBytes("UTF-8"));
-        fos.flush();
-        fos.close();
+        // --- ۳. نوشتن فایل روی دیسک ---
+        File configFile = new File(baseDir, "config.json");
+        try (FileOutputStream fos = new FileOutputStream(configFile)) {
+            fos.write(root.toString(2).getBytes("UTF-8")); 
+            fos.flush();
+        }
     }
 
     private void stopVpn() {
@@ -263,6 +267,10 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     "Fandogh VPN Service",
                     NotificationManager.IMPORTANCE_LOW
             );
+            // حذف صدا و ویبره برای نوتیفیکیشن سرویس دائمی
+            channel.setSound(null, null);
+            channel.enableVibration(false);
+            
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) {
                 manager.createNotificationChannel(channel);
@@ -285,11 +293,11 @@ public class FandoghVpnService extends VpnService implements Runnable {
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("فندق‌شکن")
                 .setContentText("اتصال ایمن برقرار است 🛡️")
-                .setSmallIcon(android.R.drawable.ic_secure)
+                .setSmallIcon(android.R.drawable.ic_secure) // مطمئن شوید این آیکون در مسیر res/drawable وجود دارد
                 .setContentIntent(mainPendingIntent)
                 .addAction(android.R.drawable.ic_menu_close_clear_cancel, "قطع اتصال", stopPendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true)
                 .build();
     }
-                     }
-                
+    }

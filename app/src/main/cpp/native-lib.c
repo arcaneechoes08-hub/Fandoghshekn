@@ -18,7 +18,7 @@ Java_com_fandogh_shekan_FandoghVpnService_startCoreNative(JNIEnv *env, jclass cl
 
     LOGD("Starting core native: %s, config: %s, tunFd: %d", core_path, config_path, tun_fd);
 
-    // برداشتن فلگ قفل برای به ارث رسیدن تونل توسط هسته
+    // 💥 شاه‌کلید حل مشکل آیکون: اجازه به هسته برای دسترسی به تونل VPN اندروید
     int flags = fcntl(tun_fd, F_GETFD);
     if (flags != -1) {
         fcntl(tun_fd, F_SETFD, flags & ~FD_CLOEXEC);
@@ -26,8 +26,8 @@ Java_com_fandogh_shekan_FandoghVpnService_startCoreNative(JNIEnv *env, jclass cl
 
     core_pid = fork();
     if (core_pid == 0) {
-        // اجرای مستقیم پروسه سینگ‌باکس در پس‌زمینه اپلیکیشن
-        execl(core_path, "sing-box", "run", "-c", config_path, NULL);
+        // اجرا با فلگ -c که هم برای سینگ‌باکس و هم Xray کار می‌کنه
+        execl(core_path, "core", "run", "-c", config_path, NULL);
         _exit(1);
     }
 
@@ -36,7 +36,7 @@ Java_com_fandogh_shekan_FandoghVpnService_startCoreNative(JNIEnv *env, jclass cl
 
     if (core_pid > 0) {
         LOGD("Core started with PID: %d", core_pid);
-        return 0;
+        return core_pid;
     } else {
         LOGD("Fork failed");
         return -1;
@@ -46,8 +46,7 @@ Java_com_fandogh_shekan_FandoghVpnService_startCoreNative(JNIEnv *env, jclass cl
 JNIEXPORT void JNICALL
 Java_com_fandogh_shekan_FandoghVpnService_stopCoreNative(JNIEnv *env, jclass clazz) {
     if (core_pid > 0) {
-        LOGD("Killing core process PID: %d", core_pid);
-        kill(core_pid, SIGTERM);
+        kill(core_pid, SIGTERM); // بستن ایمن هسته برای جلوگیری از زامبی شدن
         int status;
         waitpid(core_pid, &status, 0);
         core_pid = -1;

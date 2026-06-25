@@ -32,8 +32,13 @@ public class FandoghVpnService extends VpnService implements Runnable {
         // ایجاد و فعال‌سازی فوری نوتیفیکیشن جهت جلوگیری از کرش سيستم
         startForegroundNotification();
 
+        String action = intent != null ? intent.getAction() : "null";
+        // ثبت لاگ اکشن ورودی به سرویس پس‌زمینه
+        AppLog.add("FandoghVpnService", "سرویس با اکشن اجرا شد: " + action);
+
         if (intent != null) {
             if ("STOP".equals(intent.getAction())) {
+                AppLog.add("FandoghVpnService", "دستور توقف صریح (STOP) از اکتیویتی دریافت شد.");
                 stopVpn();
                 return START_NOT_STICKY;
             }
@@ -42,6 +47,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         }
         
         if (mThread != null && mThread.isAlive()) {
+            AppLog.add("FandoghVpnService", "ترد قدیمی سرویس هنوز زنده است. در حال ری‌استارت تونل...");
             stopVpn();
         }
         
@@ -76,6 +82,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
     @Override
     public void onDestroy() {
+        AppLog.add("FandoghVpnService", "متد onDestroy سرویس فراخوانی شد. تخریب نهایی منابع ترافیکی.");
         stopVpn();
         super.onDestroy();
     }
@@ -83,15 +90,20 @@ public class FandoghVpnService extends VpnService implements Runnable {
     @Override
     public void run() {
         try {
+            AppLog.add("FandoghVpnService", "ترد اصلی هسته VPN آغاز به کار کرد.");
             showStatus("🔍 بارگذاری هسته هوشمند...");
+            
             String nativeDir = getApplicationInfo().nativeLibraryDir;
             File coreBin = new File(nativeDir, "libxray.so");
+            AppLog.add("FandoghVpnService", "در حال بررسی وجود باینری در مسیر سیستمی...");
+            
             if (!coreBin.exists()) {
-                throw new Exception("هسته سیستمی یافت نشد!");
+                throw new Exception("فایل هسته libxray.so در این مسیر یافت نشد!");
             }
 
             File baseDir = getFilesDir();
             showStatus("⚙️ تنظیم مسیریابی ترافیک لایه ۳...");
+            AppLog.add("FandoghVpnService", "باینری تایید شد. در حال مقداردهی کانفیگ پکت‌های لایه ۳ (Tun)...");
             
             Builder builder = new Builder();
             mInterface = builder.setSession("FandoghShekan")
@@ -103,10 +115,13 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     .establish();
 
             if (mInterface == null) {
-                throw new Exception("مجوز ایجاد تونل صادر نشد!");
+                throw new Exception("سیستم عامل مجوز ساخت VpnInterface را صادر نکرد.");
             }
+            AppLog.add("FandoghVpnService", "تونل لایه ۳ با موفقیت باز شد. شماره Fd: " + mInterface.getFd());
 
+            // بخش‌های ساخت فایل json تنظیمات
             generateSingBoxConfig(mVlessLink, baseDir, mInterface.getFd());
+            AppLog.add("FandoghVpnService", "فایل تنظیمات هسته تولید شد. دستور اجرای مستقیم باینری صادر می‌شود...");
             showStatus("🚀 فندق‌شکن متصل شد و ترافیک ایمن گردید.");
             
             String[] cmd = {
@@ -115,12 +130,19 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 "-config", 
                 new File(baseDir, "config.json").getAbsolutePath()
             };
+            
+            // قبل از اجرای باینری هسته هسته
+            AppLog.add("FandoghVpnService", "دستور فرستاده شد: " + coreBin.getAbsolutePath());
             mCoreProcess = Runtime.getRuntime().exec(cmd);
+            
+            AppLog.add("FandoghVpnService", "پروسس باینری با موفقیت لود شد و در حال پردازش پکت‌هاست.");
+            
             while (mThread != null && !mThread.isInterrupted()) {
                 Thread.sleep(1000);
             }
         } catch (Exception e) {
             Log.e(TAG, "خطا: " + e.getMessage());
+            AppLog.add("FandoghVpnService", "❌ وقوع خطای شدید در سرویس: " + e.getMessage());
             showStatus("❌ خطا: " + e.getMessage());
         } finally {
             stopVpn();
@@ -162,10 +184,12 @@ public class FandoghVpnService extends VpnService implements Runnable {
     }
 
     private void stopVpn() {
+        AppLog.add("FandoghVpnService", "درخواست توقف سرویس و تخریب پروسس باینری هسته دریافت شد.");
         try {
             if (mCoreProcess != null) {
                 mCoreProcess.destroy();
                 mCoreProcess = null;
+                AppLog.add("FandoghVpnService", "پروسس مادری باینری کلاً متوقف و تخریب شد.");
             }
             if (mThread != null) {
                 mThread.interrupt();
@@ -174,9 +198,11 @@ public class FandoghVpnService extends VpnService implements Runnable {
             if (mInterface != null) {
                 mInterface.close();
                 mInterface = null;
+                AppLog.add("FandoghVpnService", "رابط مجاری تونل لایه ۳ (Tun Fd) با موفقیت بسته شد.");
             }
         } catch (Exception e) {
             Log.e(TAG, "خطا در توقف: " + e.getMessage());
+            AppLog.add("FandoghVpnService", "خطا در فرآیند متوقف‌سازی سرویس: " + e.getMessage());
         }
     }
-                }
+                       }

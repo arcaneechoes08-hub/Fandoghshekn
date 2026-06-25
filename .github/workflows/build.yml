@@ -14,21 +14,6 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Download and Prepare Sing-box Core
-        run: |
-          mkdir -p app/src/main/jniLibs/arm64-v8a
-          
-          TAG_NAME=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | jq -r '.tag_name')
-          VERSION=${TAG_NAME#v}
-          
-          echo "📥 Downloading Sing-box Android v$VERSION..."
-          curl -L -o singbox-arm64.tar.gz "https://github.com/SagerNet/sing-box/releases/download/${TAG_NAME}/sing-box-${VERSION}-android-arm64.tar.gz"
-          tar -xzf singbox-arm64.tar.gz
-          
-          mv sing-box-${VERSION}-android-arm64/sing-box app/src/main/jniLibs/arm64-v8a/libsingbox.so
-          
-          echo "✅ Android Core binary packaged successfully!"
-
       - name: Build with Gradle
         run: ./gradlew assembleDebug
 

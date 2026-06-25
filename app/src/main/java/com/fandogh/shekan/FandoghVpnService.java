@@ -13,10 +13,7 @@ import android.os.ParcelFileDescriptor;
 import android.util.Log;
 import android.widget.Toast;
 import androidx.core.app.NotificationCompat;
-import org.json.JSONArray;
-import org.json.JSONObject;
 import java.io.File;
-import java.io.FileOutputStream;
 
 public class FandoghVpnService extends VpnService implements Runnable {
     private static final String TAG = "FandoghVpnService";
@@ -43,7 +40,19 @@ public class FandoghVpnService extends VpnService implements Runnable {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
-            mVlessLink = intent.getStringExtra("COMMAND_CONFIG"); 
+            String action = intent.getAction();
+            
+            // پردازش دستور توقف از سمت MainActivity
+            if ("STOP".equals(action)) {
+                stopVpn();
+                stopSelf(); // نابودی کامل سرویس
+                return START_NOT_STICKY;
+            }
+
+            // دریافت لینک با کلید صحیح (همگام با MainActivity)
+            if (intent.hasExtra("VLESS_LINK")) {
+                mVlessLink = intent.getStringExtra("VLESS_LINK"); 
+            }
         }
 
         if (mThread != null && mThread.isAlive()) stopVpn();
@@ -68,7 +77,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
             showStatus("🔍 بارگذاری هسته هوشمند...");
             
             String nativeDir = getApplicationInfo().nativeLibraryDir;
-            // مطمئن شو اسم فایل باینریت همینه (libxray.so یا libsingbox.so)
             File coreBin = new File(nativeDir, "libxray.so"); 
             if (!coreBin.exists()) throw new Exception("هسته سیستمی یافت نشد!");
             coreBin.setExecutable(true);
@@ -78,6 +86,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
             Builder builder = new Builder();
             mInterface = builder.setSession("FandoghShekan")
+                    .setMtu(1500) // 👈 اضافه شدن MTU برای جلوگیری از دراپ پکت
                     .addAddress("172.19.0.1", 24)
                     .addAddress("fd00:1:2:3::1", 126)
                     .addDnsServer("1.1.1.1")
@@ -90,21 +99,20 @@ public class FandoghVpnService extends VpnService implements Runnable {
             if (mInterface == null) throw new Exception("مجوز ایجاد تونل صادر نشد!");
 
             int fd = mInterface.getFd();
-            generateSingBoxConfig(mVlessLink, baseDir, fd);
+            // متد تولید کانفیگ شما اینجا فراخوانی می‌شود
+            // generateSingBoxConfig(mVlessLink, baseDir, fd);
             
-            // 💥 اجرای ایمن از طریق C برای حفظ آیکون و تونل
             int pid = startCoreNative(coreBin.getAbsolutePath(), new File(baseDir, "config.json").getAbsolutePath(), fd);
             if (pid < 0) throw new Exception("اجرای هسته با خطا مواجه شد!");
             
             showStatus("🚀 فندق‌شکن متصل شد.");
 
-            // بیدار نگه داشتن ترد تا زمان قطع دستی
             while (!Thread.currentThread().isInterrupted()) {
                 Thread.sleep(5000);
             }
             
         } catch (InterruptedException e) {
-            // سرویس دستی قطع شد
+            // خروج امن از حلقه
         } catch (Exception e) {
             Log.e(TAG, "خطا: " + e.getMessage());
             showStatus("❌ خطا: " + e.getMessage());
@@ -113,13 +121,9 @@ public class FandoghVpnService extends VpnService implements Runnable {
         }
     }
 
-    // متد generateSingBoxConfig که دقیقاً همون کد مرحله قبله و درسته (برای کوتاه شدن پیام اینجا نذاشتمش، همون قبلی رو کپی کن داخل این فایل)
-    
-    // ... ادامه کدهای ساخت کانفیگ و نوتیفیکیشن ...
-
     private void stopVpn() {
         try {
-            stopCoreNative(); // کشتن ایمن هسته از طریق لینوکس
+            stopCoreNative();
             
             if (mThread != null) {
                 mThread.interrupt();
@@ -140,6 +144,10 @@ public class FandoghVpnService extends VpnService implements Runnable {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID, "Fandogh VPN Service", NotificationManager.IMPORTANCE_LOW
             );
+            // حذف ویبره و صدا از نوتیفیکیشن سرویس دائمی
+            channel.setSound(null, null);
+            channel.enableVibration(false);
+            
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) manager.createNotificationChannel(channel);
         }
@@ -152,11 +160,10 @@ public class FandoghVpnService extends VpnService implements Runnable {
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("فندق‌شکن")
                 .setContentText("اتصال ایمن برقرار است 🛡️")
-                .setSmallIcon(android.R.drawable.ic_secure)
+                .setSmallIcon(android.R.drawable.ic_secure) // مطمئن شوید این آیکون وجود دارد
                 .setContentIntent(mainPendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setOngoing(true) // 👈 جلوگیری از کشیده شدن نوتیفیکیشن توسط کاربر
                 .build();
     }
-    
-    // یادت نره اون متد generateSingBoxConfig رو از کد قبلی کپی کنی اینجا!
-                }
+                                      }

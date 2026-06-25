@@ -1,9 +1,0 @@
-pluginManagement {
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-    }
-}
-rootProject.name = "Fandogh-Shekan"
-include ':app'

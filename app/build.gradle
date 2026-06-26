@@ -12,6 +12,21 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
+        
+        // معرفی CMake به گریدل برای کامپایل کدهای C++
+        externalNativeBuild {
+            cmake {
+                cppFlags ""
+            }
+        }
+    }
+
+    // آدرس‌دهی دقیق فایل کانفیگ CMake
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.18.1"
+        }
     }
 
     buildTypes {

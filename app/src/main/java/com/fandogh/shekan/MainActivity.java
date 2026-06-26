@@ -1,314 +1,247 @@
 package com.fandogh.shekan;
 
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
+import android.app.Activity;
 import android.content.Intent;
-import android.content.pm.ServiceInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.Signature;
 import android.net.VpnService;
 import android.os.Build;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.ParcelFileDescriptor;
+import android.os.Bundle;
+import android.util.Base64;
 import android.util.Log;
+import android.widget.Button;
+import android.widget.ScrollView;
+import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.core.app.NotificationCompat;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AppCompatActivity;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
+import java.security.MessageDigest;
 
-import java.io.File;
-import java.io.FileOutputStream;
+public class MainActivity extends AppCompatActivity {
 
-public class FandoghVpnService extends VpnService implements Runnable {
-    private static final String TAG = "FandoghVpnService";
-    private static final int NOTIFICATION_ID = 1;
-    private static final String CHANNEL_ID = "FandoghVpnChannel";
+    private Button btnConnect;
+    private boolean isConnected = false;
+    private String v2rayConfig = "";
+    private ConfigManager configManager;
+    private PingManager pingManager;
 
-    static {
-        System.loadLibrary("native-lib");
-    }
+    private TextView txtLogs;
+    private ScrollView logScrollView;
+    private ActivityResultLauncher<Intent> vpnPermissionLauncher;
 
-    public static native int startCoreNative(String corePath, String configPath, int tunFd);
-    public static native void stopCoreNative();
-
-    private Thread mThread;
-    private ParcelFileDescriptor mInterface;
-    private String mVlessLink;
-
-    private void showStatus(String message) {
-        new Handler(Looper.getMainLooper()).post(() ->
-                Toast.makeText(getApplicationContext(), message, Toast.LENGTH_SHORT).show()
-        );
-    }
+    private static final String EXPECTED_SIGNATURE = "YOUR_REAL_SIGNATURE_HASH_HERE";
 
     @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null) {
-            String action = intent.getAction();
-            if ("STOP".equals(action)) {
-                stopVpn();
-                stopSelf();
-                return START_NOT_STICKY;
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        if (!checkAppSignature()) {
+            Toast.makeText(this, "خطای امنیتی: برنامه دستکاری شده است!", Toast.LENGTH_LONG).show();
+            finishAffinity();
+            System.exit(0);
+            return;
+        }
+
+        setContentView(R.layout.activity_main);
+
+        btnConnect = findViewById(R.id.btnConnect);
+        txtLogs = findViewById(R.id.txtLogs);
+        logScrollView = findViewById(R.id.logScrollView);
+
+        configManager = new ConfigManager(this);
+        pingManager = new PingManager();
+
+        registerVpnPermissionLauncher();
+
+        if (txtLogs != null) txtLogs.setText(AppLog.getAllLogs());
+
+        AppLog.setListener(newLog -> {
+            if (txtLogs != null && logScrollView != null) {
+                runOnUiThread(() -> {
+                    txtLogs.append(newLog + "\n");
+                    logScrollView.post(() -> logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+                });
             }
-            if (intent.hasExtra("VLESS_LINK")) {
-                mVlessLink = intent.getStringExtra("VLESS_LINK");
-            }
-        }
+        });
 
-        // اعتبارسنجی لینک قبل از شروع
-        if (mVlessLink == null || !mVlessLink.startsWith("vless://")) {
-            Log.e(TAG, "لینک VLESS نامعتبر یا خالی است.");
-            stopSelf();
-            return START_NOT_STICKY;
-        }
+        AppLog.add("MainActivity", "رابط کاربری برنامه فندق‌شکن لود شد.");
 
-        if (mThread != null && mThread.isAlive()) {
-            stopVpn();
-        }
-
-        createNotificationChannel();
-
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIFICATION_ID, buildNotification(),
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
-        } else {
-            startForeground(NOTIFICATION_ID, buildNotification());
-        }
-
-        mThread = new Thread(this, "FandoghVpnThread");
-        mThread.start();
-        return START_STICKY;
+        btnConnect.setOnClickListener(v -> {
+            if (!isConnected) startFetchingConfig();
+            else stopFandoghVpn();
+        });
     }
 
-    @Override
-    public void onDestroy() {
-        stopVpn();
-        super.onDestroy();
-    }
+    private void startFetchingConfig() {
+        btnConnect.setEnabled(false);
+        btnConnect.setText("در حال رمزگشایی و اتصال...");
+        AppLog.add("MainActivity", "شروع فرآیند اتصال...");
 
-    @Override
-    public void run() {
-        try {
-            showStatus("🔍 بارگذاری هسته هوشمند...");
-            String nativeDir = getApplicationInfo().nativeLibraryDir;
-
-            File coreBin = new File(nativeDir, "libxray.so");
-            if (!coreBin.exists()) throw new Exception("هسته سیستمی یافت نشد!");
-            coreBin.setExecutable(true);
-
-            File baseDir = getFilesDir();
-            showStatus("⚙️ تنظیم مسیریابی ترافیک...");
-
-            Builder builder = new Builder();
-            mInterface = builder.setSession("FandoghShekan")
-                    .setMtu(1500)
-                    .addAddress("172.19.0.1", 30)
-                    .addAddress("fd00:1:2:3::1", 126)
-                    .addDnsServer("1.1.1.1")
-                    .addDnsServer("8.8.8.8")
-                    .addRoute("0.0.0.0", 0)
-                    .addRoute("::", 0)
-                    .addDisallowedApplication(getPackageName())
-                    .establish();
-
-            if (mInterface == null) throw new Exception("مجوز ایجاد تونل صادر نشد!");
-
-            int fd = mInterface.getFd();
-
-            generateCoreConfig(mVlessLink, baseDir, fd);
-
-            showStatus("🚀 فندق‌شکن متصل شد.");
-
-            int pid = startCoreNative(
-                    coreBin.getAbsolutePath(),
-                    new File(baseDir, "config.json").getAbsolutePath(),
-                    fd
-            );
-            if (pid < 0) throw new Exception("اجرای هسته با خطا مواجه شد!");
-
-            while (!Thread.currentThread().isInterrupted()) {
-                Thread.sleep(5000);
-            }
-
-        } catch (InterruptedException e) {
-            // خروج امن از حلقه
-        } catch (Exception e) {
-            Log.e(TAG, "خطا: " + e.getMessage());
-            showStatus("❌ خطا: " + e.getMessage());
-        } finally {
-            stopVpn();
-        }
-    }
-
-    private void generateCoreConfig(String link, File baseDir, int tunFd) throws Exception {
-        if (link == null || !link.startsWith("vless://")) {
-            throw new Exception("لینک کانفیگ نامعتبر است (فقط vless پشتیبانی می‌شود).");
-        }
-
-        String host = "", uuid = "", security = "none", type = "tcp",
-                path = "/", sni = "", wsHost = "", fp = "";
-        int port = 443;
-
-        try {
-            String uriBody = link.substring(8);
-            int hashIdx = uriBody.indexOf("#");
-            if (hashIdx != -1) uriBody = uriBody.substring(0, hashIdx);
-
-            String[] querySplit = uriBody.split("\\?", 2);
-            String credentialsAndServer = querySplit[0];
-            String queryParams = querySplit.length > 1 ? querySplit[1] : "";
-
-            int atIdx = credentialsAndServer.lastIndexOf("@");
-            if (atIdx < 0) throw new Exception("فرمت لینک نامعتبر");
-
-            uuid = credentialsAndServer.substring(0, atIdx);
-            String serverPart = credentialsAndServer.substring(atIdx + 1);
-
-            int colonIdx = serverPart.lastIndexOf(":");
-            if (colonIdx < 0) throw new Exception("پورت یافت نشد");
-
-            host = serverPart.substring(0, colonIdx);
-            port = Integer.parseInt(serverPart.substring(colonIdx + 1));
-
-            if (!queryParams.isEmpty()) {
-                for (String param : queryParams.split("&")) {
-                    String[] kv = param.split("=", 2);
-                    if (kv.length < 2) continue;
-                    String key = kv[0];
-                    String val = java.net.URLDecoder.decode(kv[1], "UTF-8");
-                    switch (key) {
-                        case "type":     type = val;    break;
-                        case "security": security = val; break;
-                        case "sni":      sni = val;     break;
-                        case "host":     wsHost = val;  break;
-                        case "path":     path = val;    break;
-                        case "fp":       fp = val;      break;
-                    }
+        configManager.fetchAndDecryptConfig(new ConfigManager.ConfigCallback() {
+            @Override
+            public void onSuccess(String decryptedConfig) {
+                if (decryptedConfig == null || !decryptedConfig.startsWith("vless://")) {
+                    AppLog.add("MainActivity", "خطا: کانفیگ دریافتی نامعتبر است.");
+                    runOnUiThread(() -> {
+                        btnConnect.setEnabled(true);
+                        btnConnect.setText("اتصال هوشمند");
+                        Toast.makeText(MainActivity.this,
+                            "❌ کانفیگ دریافتی نامعتبر است", Toast.LENGTH_LONG).show();
+                    });
+                    return;
                 }
+                v2rayConfig = decryptedConfig;
+                AppLog.add("MainActivity", "کانفیگ با موفقیت رمزگشایی شد.");
+                runOnUiThread(() -> btnConnect.setText("در حال تست پینگ..."));
+                parseAndPing(decryptedConfig);
             }
-        } catch (Exception e) {
-            throw new Exception("خطا در پارس کردن لینک vless: " + e.getMessage());
-        }
 
-        JSONObject root = new JSONObject();
-        JSONObject log = new JSONObject();
-        log.put("level", "warn");
-        root.put("log", log);
-
-        JSONArray inbounds = new JSONArray();
-        JSONObject tunIn = new JSONObject();
-        tunIn.put("type", "tun");
-        tunIn.put("tag", "tun-in");
-        tunIn.put("interface_name", "tun0");
-        tunIn.put("fd", tunFd);
-        tunIn.put("auto_route", true);
-        tunIn.put("strict_route", true);
-        inbounds.put(tunIn);
-        root.put("inbounds", inbounds);
-
-        JSONArray outbounds = new JSONArray();
-        JSONObject vlessOut = new JSONObject();
-        vlessOut.put("type", "vless");
-        vlessOut.put("tag", "proxy");
-        vlessOut.put("server", host);
-        vlessOut.put("server_port", port);
-        vlessOut.put("uuid", uuid);
-
-        if ("tls".equals(security) || "reality".equals(security)) {
-            JSONObject tls = new JSONObject();
-            tls.put("enabled", true);
-            tls.put("server_name", sni.isEmpty() ? host : sni);
-            if (!fp.isEmpty()) {
-                JSONObject utls = new JSONObject();
-                utls.put("enabled", true);
-                utls.put("fingerprint", fp);
-                tls.put("utls", utls);
+            @Override
+            public void onError(String error) {
+                AppLog.add("MainActivity", "خطا: " + error);
+                runOnUiThread(() -> {
+                    btnConnect.setEnabled(true);
+                    btnConnect.setText("اتصال هوشمند");
+                    Toast.makeText(MainActivity.this, "❌ " + error, Toast.LENGTH_LONG).show();
+                });
             }
-            vlessOut.put("tls", tls);
-        }
-
-        if ("ws".equals(type)) {
-            JSONObject transport = new JSONObject();
-            transport.put("type", "ws");
-            transport.put("path", path);
-            if (!wsHost.isEmpty()) {
-                JSONObject headers = new JSONObject();
-                headers.put("Host", wsHost);
-                transport.put("headers", headers);
-            }
-            vlessOut.put("transport", transport);
-        }
-
-        outbounds.put(vlessOut);
-        root.put("outbounds", outbounds);
-
-        File configFile = new File(baseDir, "config.json");
-        try (FileOutputStream fos = new FileOutputStream(configFile)) {
-            fos.write(root.toString(2).getBytes("UTF-8"));
-            fos.flush();
-        }
+        });
     }
 
-    private void stopVpn() {
+    private void parseAndPing(String config) {
+        if (config == null || !config.startsWith("vless://")) {
+            AppLog.add("MainActivity", "خطا در بررسی پینگ: کانفیگ نامعتبر");
+            runOnUiThread(this::startFandoghVpn);
+            return;
+        }
         try {
-            stopCoreNative();
-            if (mThread != null) {
-                mThread.interrupt();
-                mThread = null;
-            }
-            if (mInterface != null) {
-                mInterface.close();
-                mInterface = null;
-            }
-            // اصلاح deprecation برای API 33+
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_REMOVE);
+            String uriBody = config.substring(8);
+            int atIndex = uriBody.lastIndexOf("@");
+            if (atIndex < 0) throw new Exception("فرمت لینک نامعتبر");
+            String serverPart = uriBody.substring(atIndex + 1);
+            String hostAndPort = serverPart.split("[?#]")[0];
+            int colonIndex = hostAndPort.lastIndexOf(":");
+            if (colonIndex < 0) throw new Exception("پورت یافت نشد");
+            String host = hostAndPort.substring(0, colonIndex).trim();
+            int port = Integer.parseInt(hostAndPort.substring(colonIndex + 1).trim());
+
+            pingManager.checkTcpPing(host, port, new PingManager.PingCallback() {
+                @Override
+                public void onResult(long latencyMs) {
+                    AppLog.add("MainActivity", "پینگ سرور: " + latencyMs + "ms");
+                    runOnUiThread(() -> startFandoghVpn());
+                }
+                @Override
+                public void onError(String error) {
+                    AppLog.add("MainActivity", "سرور قطع است (Timeout)");
+                    runOnUiThread(() -> {
+                        btnConnect.setEnabled(true);
+                        btnConnect.setText("سرور قطع است");
+                    });
+                }
+            });
+        } catch (Exception e) {
+            AppLog.add("MainActivity", "خطا در بررسی پینگ، اتصال مستقیم...");
+            runOnUiThread(this::startFandoghVpn);
+        }
+    }
+
+    private void registerVpnPermissionLauncher() {
+        vpnPermissionLauncher = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(),
+            result -> {
+                if (result.getResultCode() == Activity.RESULT_OK) {
+                    AppLog.add("MainActivity", "مجوز VpnService تایید شد.");
+                    startVpnServiceForeground();
+                } else {
+                    AppLog.add("MainActivity", "کاربر مجوز VPN را رد کرد.");
+                    btnConnect.setText("اتصال هوشمند");
+                    btnConnect.setEnabled(true);
+                }
+            });
+    }
+
+    private void startFandoghVpn() {
+        Intent intent = VpnService.prepare(this);
+        if (intent != null) {
+            AppLog.add("MainActivity", "درخواست مجوز سیستم عامل...");
+            vpnPermissionLauncher.launch(intent);
+        } else {
+            startVpnServiceForeground();
+        }
+    }
+
+    private void startVpnServiceForeground() {
+        try {
+            Intent vpnIntent = new Intent(this, FandoghVpnService.class);
+            vpnIntent.setAction("START");
+            vpnIntent.putExtra("VLESS_LINK", v2rayConfig);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                startForegroundService(vpnIntent);
+            else
+                startService(vpnIntent);
+
+            isConnected = true;
+            btnConnect.setEnabled(true);
+            btnConnect.setText("متصل شد 🌰 (قطع اتصال)");
+            btnConnect.setBackgroundColor(0xFF4CAF50);
+            AppLog.add("MainActivity", "سرویس فندق‌شکن فعال شد.");
+        } catch (Exception e) {
+            AppLog.add("MainActivity", "خطا در استارت سرویس: " + e.getMessage());
+            btnConnect.setText("اتصال هوشمند");
+            btnConnect.setEnabled(true);
+            isConnected = false;
+        }
+    }
+
+    private void stopFandoghVpn() {
+        AppLog.add("MainActivity", "سیگنال توقف به سرویس ارسال شد.");
+        Intent vpnIntent = new Intent(this, FandoghVpnService.class);
+        vpnIntent.setAction("STOP");
+        startService(vpnIntent);
+        isConnected = false;
+        btnConnect.setText("اتصال هوشمند");
+        btnConnect.setBackgroundColor(0xFFFF9800);
+        Toast.makeText(this, "فندق‌شکن متوقف شد.", Toast.LENGTH_SHORT).show();
+    }
+
+    private boolean checkAppSignature() {
+        try {
+            if ("YOUR_REAL_SIGNATURE_HASH_HERE".equals(EXPECTED_SIGNATURE)) return true;
+            PackageInfo packageInfo;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo = getPackageManager().getPackageInfo(
+                    getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
+                for (Signature sig : packageInfo.signingInfo.getApkContentsSigners())
+                    if (verifyHash(sig)) return true;
             } else {
-                stopForeground(true);
+                packageInfo = getPackageManager().getPackageInfo(
+                    getPackageName(), PackageManager.GET_SIGNATURES);
+                for (Signature sig : packageInfo.signatures)
+                    if (verifyHash(sig)) return true;
             }
         } catch (Exception e) {
-            Log.e(TAG, "خطا در توقف: " + e.getMessage());
+            Log.e("Security", "خطا در ارزیابی امضا", e);
         }
+        return false;
     }
 
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID,
-                    "Fandogh VPN Service",
-                    NotificationManager.IMPORTANCE_LOW
-            );
-            channel.setSound(null, null);
-            channel.enableVibration(false);
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) {
-                manager.createNotificationChannel(channel);
-            }
-        }
+    private boolean verifyHash(Signature signature) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        md.update(signature.toByteArray());
+        String current = Base64.encodeToString(md.digest(), Base64.DEFAULT).trim();
+        return current.equals(EXPECTED_SIGNATURE);
     }
 
-    private Notification buildNotification() {
-        Intent mainIntent = new Intent(this, MainActivity.class);
-        PendingIntent mainPendingIntent = PendingIntent.getActivity(
-                this, 0, mainIntent, PendingIntent.FLAG_IMMUTABLE
-        );
-        Intent stopIntent = new Intent(this, FandoghVpnService.class);
-        stopIntent.setAction("STOP");
-        PendingIntent stopPendingIntent = PendingIntent.getService(
-                this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE
-        );
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("فندق‌شکن")
-                .setContentText("اتصال ایمن برقرار است 🛡️")
-                .setSmallIcon(android.R.drawable.ic_secure)
-                .setContentIntent(mainPendingIntent)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel,
-                        "قطع اتصال", stopPendingIntent)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setOngoing(true)
-                .build();
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        AppLog.setListener(null);
+        if (configManager != null) configManager.shutdown();
+        if (pingManager != null) pingManager.shutdown();
     }
-    }
+                }

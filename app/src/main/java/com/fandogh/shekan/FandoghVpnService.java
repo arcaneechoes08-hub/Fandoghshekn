@@ -27,7 +27,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
     private static final int NOTIFICATION_ID = 1;
     private static final String CHANNEL_ID = "FandoghVpnChannel";
 
-    // وصل کردن کدهای C++ به جاوا
     static {
         System.loadLibrary("native-lib");
     }
@@ -64,8 +63,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         }
 
         createNotificationChannel();
-        
-        // ایمن‌سازی برای جلوگیری از کرش در اندروید 14 به بالا
+
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
         } else {
@@ -90,13 +88,11 @@ public class FandoghVpnService extends VpnService implements Runnable {
             String nativeDir = getApplicationInfo().nativeLibraryDir;
             
             File coreBin = new File(nativeDir, "libxray.so");
-            if (!coreBin.exists()) {
-                throw new Exception("هسته سیستمی یافت نشد!");
-            }
+            if (!coreBin.exists()) throw new Exception("هسته سیستمی یافت نشد!");
             coreBin.setExecutable(true);
 
             File baseDir = getFilesDir();
-            showStatus("⚙️ تنظیم مسیریابی ترافیک لایه ۳...");
+            showStatus("⚙️ تنظیم مسیریابی ترافیک...");
 
             Builder builder = new Builder();
             mInterface = builder.setSession("FandoghShekan")
@@ -110,16 +106,14 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     .addDisallowedApplication(getPackageName())
                     .establish();
 
-            if (mInterface == null) {
-                throw new Exception("مجوز ایجاد تونل صادر نشد!");
-            }
+            if (mInterface == null) throw new Exception("مجوز ایجاد تونل صادر نشد!");
 
             int fd = mInterface.getFd();
             
-            // تولید فایل کانفیگ ضروری برای اجرای هسته
+            // تولید فایل کانفیگ JSON
             generateCoreConfig(mVlessLink, baseDir, fd);
             
-            showStatus("🚀 فندق‌شکن متصل شد و ترافیک ایمن گردید.");
+            showStatus("🚀 فندق‌شکن متصل شد.");
 
             int pid = startCoreNative(coreBin.getAbsolutePath(), new File(baseDir, "config.json").getAbsolutePath(), fd);
             if (pid < 0) throw new Exception("اجرای هسته با خطا مواجه شد!");
@@ -245,7 +239,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
     private void stopVpn() {
         try {
             stopCoreNative();
-            
             if (mThread != null) {
                 mThread.interrupt();
                 mThread = null;
@@ -269,7 +262,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
             );
             channel.setSound(null, null);
             channel.enableVibration(false);
-            
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) {
                 manager.createNotificationChannel(channel);
@@ -282,21 +274,19 @@ public class FandoghVpnService extends VpnService implements Runnable {
         PendingIntent mainPendingIntent = PendingIntent.getActivity(
                 this, 0, mainIntent, PendingIntent.FLAG_IMMUTABLE
         );
-
         Intent stopIntent = new Intent(this, FandoghVpnService.class);
         stopIntent.setAction("STOP");
         PendingIntent stopPendingIntent = PendingIntent.getService(
                 this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE
-            );
-
+        );
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("فندق‌شکن")
                 .setContentText("اتصال ایمن برقرار است 🛡️")
-                .setSmallIcon(android.R.drawable.ic_secure) // مطمئن شوید این آیکون در مسیر res/drawable وجود دارد
+                .setSmallIcon(android.R.drawable.ic_secure) 
                 .setContentIntent(mainPendingIntent)
                 .addAction(android.R.drawable.ic_menu_close_clear_cancel, "قطع اتصال", stopPendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
                 .build();
     }
-            }
+                              }

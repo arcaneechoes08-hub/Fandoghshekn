@@ -19,8 +19,10 @@ import androidx.core.app.NotificationCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 
 public class FandoghVpnService extends VpnService implements Runnable {
     private static final String TAG = "FandoghVpnService";
@@ -37,6 +39,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
     public static native void stopCoreNative();
 
     private Thread mThread;
+    private Thread mLogThread; // ترد اختصاصی مانیتورینگ زنده لاگ‌های هسته نیتیو
     private ParcelFileDescriptor mInterface;
     private volatile String mVlessLink;
 
@@ -62,7 +65,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
             if (intent.hasExtra("VLESS_LINK")) {
                 mVlessLink = intent.getStringExtra("VLESS_LINK");
-                AppLog.add(TAG, "🔗 لینک VLESS جدید به طول " + mVlessLink.length() + " کاراکتر با موفقیت کش شد.");
+                AppLog.add(TAG, "🔗 لینک VLESS جدید با موفقیت در سرویس کش شد.");
             }
         }
 
@@ -98,6 +101,13 @@ public class FandoghVpnService extends VpnService implements Runnable {
     public void run() {
         File baseDir = getFilesDir();
         AppLog.add(TAG, "📂 دایرکتوری اختصاصی فایل‌های اپلیکیشن: " + baseDir.getAbsolutePath());
+        
+        // پاکسازی فایل لاگ دوره‌های قبل برای جلوگیری از تداخل دیتای قدیمی
+        File logFile = new File(baseDir, "core.log");
+        if (logFile.exists()) {
+            logFile.delete();
+        }
+
         try {
             showStatus("🔍 بارگذاری هسته هوشمند...");
             AppLog.add(TAG, "🎬 آغاز بکار لایه تونل‌زنی فندق‌شکن...");
@@ -108,7 +118,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
             if (!coreBin.exists()) {
                 throw new Exception("هسته سیستمی لایه ۲ (libxray.so) یافت نشد!");
             }
-            AppLog.add(TAG, "✅ هسته نیتیو با موفقیت رویت شد. حجم فایل: " + coreBin.length() + " بایت");
+            AppLog.add(TAG, "✅ هسته نیتیو رویت شد. حجم فایل: " + coreBin.length() + " بایت");
 
             showStatus("⚙️ تنظیم مسیریابی ترافیک لایه ۳...");
             AppLog.add(TAG, "🌐 در حال پیکربندی اینترفیس TUN اندروید...");
@@ -128,14 +138,17 @@ public class FandoghVpnService extends VpnService implements Runnable {
             }
 
             if (mInterface == null) {
-                throw new Exception("سیستم‌عامل اندروید مجوز VpnService را صادر نکرد (VpnBuilder برگشت نخورد).");
+                throw new Exception("سیستم‌عامل اندروید مجوز VpnService را صادر نکرد.");
             }
 
             int fd = mInterface.getFd();
-            AppLog.add(TAG, "✅ [TUN Interface] با موفقیت ایجاد شد. FileDescriptor اختصاص یافته: " + fd);
+            AppLog.add(TAG, "✅ [TUN Interface] با موفقیت ایجاد شد. FileDescriptor: " + fd);
 
-            // 🛠️ ایجاد کانفیگ هوشمند با فرمت استاندارد هسته و لاگ فوق پیشرفته
+            // 🛠️ ایجاد کانفیگ جامع (شامل تمام پارامترهای VLESS + مسیر لاگ داخلی)
             generateSingBoxConfig(mVlessLink, baseDir, fd);
+
+            // 🚀 روشن کردن رادار واکشی لاگ‌های لایه نیتیو هسته قبل از اجرای مستقیم آن
+            startCoreLogStreamer(logFile);
 
             AppLog.add(TAG, "⚡ در حال فراخوانی متد نیتیو startCoreNative...");
             int pid = startCoreNative(coreBin.getAbsolutePath(), new File(baseDir, "config.json").getAbsolutePath(), fd);
@@ -195,23 +208,24 @@ public class FandoghVpnService extends VpnService implements Runnable {
             throw new Exception("خطای پارسر اندروید روی رشته کامپوننت: " + e.getMessage());
         }
 
-        // 🔥 لاگ فوق‌العاده قدرتمند از ریز پارامترهای دیکود شده لینک
+        // 🔥 لاگ فیلدهای استخراج‌شده جهت صحت‌سنجی در UI عیب‌یابی
         AppLog.add(TAG, "🗺️ [مشخصات کامل ساختار لینک ورودی]");
         AppLog.add(TAG, "├── 🔑 شناسه کاربر (UUID): " + uuid);
         AppLog.add(TAG, "├── 📡 آدرس سرور (Host): " + host);
         AppLog.add(TAG, "├── 🔌 پورت اتصال (Port): " + port);
         AppLog.add(TAG, "├── 🛡️ رمزنگاری (Security): " + security);
         AppLog.add(TAG, "├── 📦 نوع ترافیک (Type): " + type.toUpperCase());
-        AppLog.add(TAG, "├── 🎯 شناسه SNI سرور: " + (sni.isEmpty() ? "تعریف نشده (استفاده از Host)" : sni));
+        AppLog.add(TAG, "├── 🎯 شناسه SNI سرور: " + (sni.isEmpty() ? "تعریف نشده" : sni));
         AppLog.add(TAG, "├── 🕸️ مسیر وب‌سوکت (Path): " + path);
         AppLog.add(TAG, "├── 👥 هاست وب‌سوکت (WS-Host): " + (wsHost.isEmpty() ? "ندارد" : wsHost));
         AppLog.add(TAG, "└── 👣 اثر انگشت (Fingerprint): " + (fp.isEmpty() ? "پیش‌فرض" : fp));
 
         JSONObject root = new JSONObject();
 
-        // ۱. تنظیمات لاگ داخلی هسته
+        // ۱. تنظیمات لاگ داخلی هسته و رایت آن در فایل لوکال core.log
         JSONObject log = new JSONObject();
         log.put("level", "info");
+        log.put("output", new File(baseDir, "core.log").getAbsolutePath());
         log.put("timestamp", true);
         root.put("log", log);
 
@@ -254,7 +268,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         JSONObject tunIn = new JSONObject();
         tunIn.put("type", "tun");
         tunIn.put("tag", "tun-in");
-        tunIn.put("file_descriptor", tunFd); // هماهنگ با فرمت استاندارد نیتیو
+        tunIn.put("file_descriptor", tunFd); 
         tunIn.put("mtu", 1500);
         tunIn.put("auto_route", false);   
         tunIn.put("strict_route", false);
@@ -273,6 +287,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         vlessOut.put("server_port", port);
         vlessOut.put("uuid", uuid);
 
+        // 🛡️ بررسی و ساخت فیلدهای امنیتی TLS / REALITY به همراه uTLS Fingerprint کامپایل شده
         if ("tls".equals(security) || "reality".equals(security)) {
             JSONObject tls = new JSONObject();
             tls.put("enabled", true);
@@ -334,13 +349,14 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
         route.put("rules", rules);
         route.put("final", "proxy"); 
-        route.put("auto_detect_interface", false); 
+        
+        // ✨ حل مشکل عدم عبور اینترنت: فعال‌سازی قطعی دیتکت اتوماتیک کارت شبکه‌های فیزیکی گوشی
+        route.put("auto_detect_interface", true); 
         root.put("route", route);
 
-        // 🔥 بمب لاگ‌گیری: چاپ زنده و کامل کل بدنه ساختار فایل جی‌سان نهایی قبل از رایت فیزیکی!
         AppLog.add(TAG, "⚙️ [محتوای خروجی نهایی ساختار config.json]:\n" + root.toString(2));
 
-        // ذخیره فایل فیزیکی کانفیگ
+        // ذخیره فیزیکی روی دیسک برنامه
         File configFile = new File(baseDir, "config.json");
         try (FileOutputStream fos = new FileOutputStream(configFile)) {
             fos.write(root.toString(2).getBytes("UTF-8"));
@@ -349,9 +365,52 @@ public class FandoghVpnService extends VpnService implements Runnable {
         AppLog.add(TAG, "💾 فایل تنظیمات هسته با موفقیت در دایرکتوری لوکال بازنویسی و سنک شد.");
     }
 
+    /**
+     * 🛰️ مانیتورینگ آنلاین لاگ‌های پنهان لایه نیتیو هسته
+     */
+    private void startCoreLogStreamer(File logFile) {
+        mLogThread = new Thread(() -> {
+            AppLog.add(TAG, "📡 رادار مانیتورینگ لاگ‌های داخلی هسته فعال شد.");
+            try {
+                int timeout = 0;
+                while (!logFile.exists() && timeout < 20) {
+                    Thread.sleep(200);
+                    timeout++;
+                }
+
+                if (!logFile.exists()) {
+                    AppLog.add(TAG, "⚠️ هشدار: فایل هسته لوکال هنوز ایجاد نشده است.");
+                    return;
+                }
+
+                try (BufferedReader br = new BufferedReader(new FileReader(logFile))) {
+                    while (!Thread.currentThread().isInterrupted()) {
+                        String line = br.readLine();
+                        if (line != null) {
+                            AppLog.add("CORE_INTERNAL", "⚙️ " + line);
+                        } else {
+                            Thread.sleep(400); 
+                        }
+                    }
+                }
+            } catch (InterruptedException e) {
+                Log.i(TAG, "ترد لاگ هسته متوقف شد.");
+            } catch (Exception e) {
+                Log.e(TAG, "خطا در واکشی لاگ هسته: " + e.getMessage());
+            }
+        }, "FandoghCoreLogThread");
+        mLogThread.start();
+    }
+
     private void stopVpn() {
         synchronized (mLock) {
             isRunning = false;
+            
+            if (mLogThread != null && mLogThread.isAlive()) {
+                mLogThread.interrupt();
+                mLogThread = null;
+            }
+
             try {
                 stopCoreNative();
                 AppLog.add(TAG, "📉 دستور قطع اتصال هسته صادر شد [stopCoreNative].");
@@ -400,4 +459,4 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 .build();
     }
                     }
-                   
+            

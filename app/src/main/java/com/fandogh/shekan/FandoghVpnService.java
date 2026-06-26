@@ -19,8 +19,10 @@ import androidx.core.app.NotificationCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 
 public class FandoghVpnService extends VpnService implements Runnable {
     private static final String TAG = "FandoghVpnService";
@@ -83,6 +85,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
     @Override
     public void run() {
+        File baseDir = getFilesDir();
         try {
             showStatus("🔍 بارگذاری هسته هوشمند...");
             String nativeDir = getApplicationInfo().nativeLibraryDir;
@@ -91,7 +94,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
             if (!coreBin.exists()) throw new Exception("هسته سیستمی یافت نشد!");
             coreBin.setExecutable(true);
 
-            File baseDir = getFilesDir();
             showStatus("⚙️ تنظیم مسیریابی ترافیک...");
 
             Builder builder = new Builder();
@@ -109,8 +111,10 @@ public class FandoghVpnService extends VpnService implements Runnable {
             if (mInterface == null) throw new Exception("مجوز ایجاد تونل صادر نشد!");
 
             int fd = mInterface.getFd();
+            AppLog.add(TAG, "TUN fd ساخته شد: " + fd);
 
             generateCoreConfig(mVlessLink, baseDir, fd);
+            AppLog.add(TAG, "config.json نوشته شد.");
 
             showStatus("🚀 فندق‌شکن متصل شد.");
 
@@ -119,7 +123,13 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     new File(baseDir, "config.json").getAbsolutePath(),
                     fd
             );
+
             if (pid < 0) throw new Exception("اجرای هسته با خطا مواجه شد!");
+            AppLog.add(TAG, "هسته با PID=" + pid + " اجرا شد.");
+
+            // صبر کن هسته start بشه بعد لاگش رو بخون
+            Thread.sleep(2000);
+            readAndLogCoreOutput(baseDir);
 
             while (!Thread.currentThread().isInterrupted()) {
                 Thread.sleep(5000);
@@ -129,9 +139,37 @@ public class FandoghVpnService extends VpnService implements Runnable {
             // خروج امن از حلقه
         } catch (Exception e) {
             Log.e(TAG, "خطا: " + e.getMessage());
+            AppLog.add(TAG, "❌ خطا: " + e.getMessage());
             showStatus("❌ خطا: " + e.getMessage());
+            // حتی اگه خطا بود لاگ هسته رو بخون
+            readAndLogCoreOutput(baseDir);
         } finally {
             stopVpn();
+        }
+    }
+
+    private void readAndLogCoreOutput(File baseDir) {
+        File logFile = new File(baseDir, "core_output.log");
+        if (!logFile.exists()) {
+            AppLog.add(TAG, "⚠️ فایل لاگ هسته وجود ندارد - هسته اصلاً اجرا نشده!");
+            return;
+        }
+        try (BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            int count = 0;
+            while ((line = reader.readLine()) != null && count < 50) {
+                sb.append(line).append("\n");
+                count++;
+            }
+            String output = sb.toString().trim();
+            if (output.isEmpty()) {
+                AppLog.add(TAG, "⚠️ لاگ هسته خالیه - احتمالاً config.json مشکل دارد");
+            } else {
+                AppLog.add(TAG, "📋 خروجی هسته:\n" + output);
+            }
+        } catch (Exception e) {
+            AppLog.add(TAG, "خطا در خواندن لاگ هسته: " + e.getMessage());
         }
     }
 
@@ -140,7 +178,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
             throw new Exception("لینک کانفیگ نامعتبر است (فقط vless پشتیبانی می‌شود).");
         }
 
-        // ── parse لینک vless ──
         String host = "", uuid = "", security = "none", type = "tcp",
                path = "/", sni = "", wsHost = "", fp = "";
         int port = 443;
@@ -169,12 +206,12 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     String key = kv[0];
                     String val = java.net.URLDecoder.decode(kv[1], "UTF-8");
                     switch (key) {
-                        case "type":     type    = val; break;
+                        case "type":     type     = val; break;
                         case "security": security = val; break;
-                        case "sni":      sni     = val; break;
-                        case "host":     wsHost  = val; break;
-                        case "path":     path    = val; break;
-                        case "fp":       fp      = val; break;
+                        case "sni":      sni      = val; break;
+                        case "host":     wsHost   = val; break;
+                        case "path":     path     = val; break;
+                        case "fp":       fp       = val; break;
                     }
                 }
             }
@@ -182,15 +219,14 @@ public class FandoghVpnService extends VpnService implements Runnable {
             throw new Exception("خطا در پارس کردن لینک vless");
         }
 
-        // ── ساخت config.json برای sing-box ──
+        AppLog.add(TAG, "پارس لینک: host=" + host + " port=" + port + " type=" + type + " security=" + security);
+
         JSONObject root = new JSONObject();
 
-        // Log
         JSONObject log = new JSONObject();
         log.put("level", "warn");
         root.put("log", log);
 
-        // DNS
         JSONObject dns = new JSONObject();
         JSONArray dnsServers = new JSONArray();
         JSONObject dnsServer = new JSONObject();
@@ -200,7 +236,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
         dns.put("servers", dnsServers);
         root.put("dns", dns);
 
-        // Inbound: TUN (fd از Android VpnService)
         JSONArray inbounds = new JSONArray();
         JSONObject tunIn = new JSONObject();
         tunIn.put("type", "tun");
@@ -209,11 +244,9 @@ public class FandoghVpnService extends VpnService implements Runnable {
         tunIn.put("mtu", 1500);
         tunIn.put("inet4_address", "172.19.0.1/30");
         tunIn.put("inet6_address", "fd00:1:2:3::1/126");
-        // auto_route و strict_route حذف شدن - routing رو Android انجام می‌ده
         inbounds.put(tunIn);
         root.put("inbounds", inbounds);
 
-        // Outbound: VLESS
         JSONArray outbounds = new JSONArray();
         JSONObject vlessOut = new JSONObject();
         vlessOut.put("type", "vless");
@@ -250,7 +283,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
         outbounds.put(vlessOut);
         root.put("outbounds", outbounds);
 
-        // Route: ترافیک tun-in → proxy
         JSONObject route = new JSONObject();
         JSONArray rules = new JSONArray();
         JSONObject rule = new JSONObject();
@@ -261,7 +293,8 @@ public class FandoghVpnService extends VpnService implements Runnable {
         route.put("final", "proxy");
         root.put("route", route);
 
-        // ذخیره فایل
+        AppLog.add(TAG, "JSON Config:\n" + root.toString(2));
+
         File configFile = new File(baseDir, "config.json");
         try (FileOutputStream fos = new FileOutputStream(configFile)) {
             fos.write(root.toString(2).getBytes("UTF-8"));

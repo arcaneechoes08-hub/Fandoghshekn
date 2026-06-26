@@ -33,13 +33,15 @@ public class MainActivity extends AppCompatActivity {
     private ScrollView logScrollView;
     private ActivityResultLauncher<Intent> vpnPermissionLauncher;
 
+    // ⚠️ مقدار واقعی هش امضا را اینجا قرار دهید (با دستور keytool -list -v)
+    // تا زمانی که این مقدار "YOUR_REAL_SIGNATURE_HASH_HERE" باشد،
+    // چک امضا غیرفعال است و هر APKی اجرا می‌شود.
     private static final String EXPECTED_SIGNATURE = "YOUR_REAL_SIGNATURE_HASH_HERE";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Security Check
         if (!checkAppSignature()) {
             Toast.makeText(this, "خطای امنیتی: برنامه دستکاری شده است!", Toast.LENGTH_LONG).show();
             finishAffinity();
@@ -48,11 +50,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         setContentView(R.layout.activity_main);
-        
+
         btnConnect = findViewById(R.id.btnConnect);
         txtLogs = findViewById(R.id.txtLogs);
         logScrollView = findViewById(R.id.logScrollView);
-        
+
         configManager = new ConfigManager(this);
         pingManager = new PingManager();
 
@@ -61,7 +63,7 @@ public class MainActivity extends AppCompatActivity {
         if (txtLogs != null) {
             txtLogs.setText(AppLog.getAllLogs());
         }
-        
+
         AppLog.setListener(newLog -> {
             if (txtLogs != null && logScrollView != null) {
                 runOnUiThread(() -> {
@@ -90,6 +92,17 @@ public class MainActivity extends AppCompatActivity {
         configManager.fetchAndDecryptConfig(new ConfigManager.ConfigCallback() {
             @Override
             public void onSuccess(String decryptedConfig) {
+                // اعتبارسنجی کانفیگ دریافتی
+                if (decryptedConfig == null || !decryptedConfig.startsWith("vless://")) {
+                    AppLog.add("MainActivity", "خطا: کانفیگ دریافتی نامعتبر است.");
+                    runOnUiThread(() -> {
+                        btnConnect.setEnabled(true);
+                        btnConnect.setText("اتصال هوشمند");
+                        Toast.makeText(MainActivity.this,
+                                "❌ کانفیگ دریافتی نامعتبر است", Toast.LENGTH_LONG).show();
+                    });
+                    return;
+                }
                 v2rayConfig = decryptedConfig;
                 AppLog.add("MainActivity", "کانفیگ با موفقیت رمزگشایی شد.");
                 runOnUiThread(() -> btnConnect.setText("در حال تست پینگ..."));
@@ -109,16 +122,29 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void parseAndPing(String config) {
+        // اعتبارسنجی قبل از پارس کردن
+        if (config == null || !config.startsWith("vless://")) {
+            AppLog.add("MainActivity", "خطا در بررسی پینگ: کانفیگ نامعتبر");
+            runOnUiThread(this::startFandoghVpn);
+            return;
+        }
+
         try {
-            String uriBody = config.substring(8);
+            String uriBody = config.substring(8); // حذف "vless://"
             int atIndex = uriBody.lastIndexOf("@");
+            if (atIndex < 0) throw new Exception("فرمت لینک نامعتبر است");
+
             String serverPart = uriBody.substring(atIndex + 1);
             String[] mainParts = serverPart.split("[?#]");
             String hostAndPort = mainParts[0];
 
             int colonIndex = hostAndPort.lastIndexOf(":");
+            if (colonIndex < 0) throw new Exception("پورت یافت نشد");
+
             String host = hostAndPort.substring(0, colonIndex).trim();
             int port = Integer.parseInt(hostAndPort.substring(colonIndex + 1).trim());
+
+            if (host.isEmpty()) throw new Exception("آدرس سرور خالی است");
 
             pingManager.checkTcpPing(host, port, new PingManager.PingCallback() {
                 @Override
@@ -137,7 +163,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
         } catch (Exception e) {
-            AppLog.add("MainActivity", "خطا در بررسی پینگ، اتصال مستقیم...");
+            AppLog.add("MainActivity", "خطا در بررسی پینگ، اتصال مستقیم... (" + e.getMessage() + ")");
             runOnUiThread(this::startFandoghVpn);
         }
     }
@@ -172,7 +198,7 @@ public class MainActivity extends AppCompatActivity {
             Intent vpnIntent = new Intent(this, FandoghVpnService.class);
             vpnIntent.setAction("START");
             vpnIntent.putExtra("VLESS_LINK", v2rayConfig);
-            
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(vpnIntent);
             } else {
@@ -197,7 +223,7 @@ public class MainActivity extends AppCompatActivity {
         Intent vpnIntent = new Intent(this, FandoghVpnService.class);
         vpnIntent.setAction("STOP");
         startService(vpnIntent);
-        
+
         isConnected = false;
         btnConnect.setText("اتصال هوشمند");
         btnConnect.setBackgroundColor(0xFFFF9800);
@@ -206,15 +232,22 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean checkAppSignature() {
         try {
-            if ("YOUR_REAL_SIGNATURE_HASH_HERE".equals(EXPECTED_SIGNATURE)) return true;
+            // اگر مقدار placeholder هنوز تغییر نکرده، چک را رد کن (فقط در development)
+            if ("YOUR_REAL_SIGNATURE_HASH_HERE".equals(EXPECTED_SIGNATURE)) {
+                Log.w("Security", "⚠️ چک امضا غیرفعال است! قبل از release مقدار EXPECTED_SIGNATURE را تنظیم کنید.");
+                return true;
+            }
+
             PackageInfo packageInfo;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
+                packageInfo = getPackageManager().getPackageInfo(
+                        getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES);
                 for (Signature signature : packageInfo.signingInfo.getApkContentsSigners()) {
                     if (verifyHash(signature)) return true;
                 }
             } else {
-                packageInfo = getPackageManager().getPackageInfo(getPackageName(), PackageManager.GET_SIGNATURES);
+                packageInfo = getPackageManager().getPackageInfo(
+                        getPackageName(), PackageManager.GET_SIGNATURES);
                 for (Signature signature : packageInfo.signatures) {
                     if (verifyHash(signature)) return true;
                 }
@@ -236,5 +269,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         AppLog.setListener(null);
+        // جلوگیری از thread leak
+        if (configManager != null) configManager.shutdown();
+        if (pingManager != null) pingManager.shutdown();
     }
-                               }
+                          }

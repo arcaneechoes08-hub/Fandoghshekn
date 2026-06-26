@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.18.1)
 project("fandoghshekan")
 
-# پسوند فایل به cpp اصلاح شد
 add_library(native-lib SHARED native-lib.cpp)
 
 find_library(log-lib log)

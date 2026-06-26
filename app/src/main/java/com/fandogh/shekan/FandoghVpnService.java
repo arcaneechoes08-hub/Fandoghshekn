@@ -87,14 +87,14 @@ public class FandoghVpnService extends VpnService implements Runnable {
     public void run() {
         File baseDir = getFilesDir();
         try {
-            showStatus("🔍 بارگذاری هسته هوشمند...");
+            showStatus("ðŸ” Ø¨Ø§Ø±Ú¯Ø°Ø§Ø±ÛŒ Ù‡Ø³ØªÙ‡ Ù‡ÙˆØ´Ù…Ù†Ø¯...");
             String nativeDir = getApplicationInfo().nativeLibraryDir;
 
             File coreBin = new File(nativeDir, "libxray.so");
-            if (!coreBin.exists()) throw new Exception("هسته سیستمی یافت نشد!");
+            if (!coreBin.exists()) throw new Exception("Ù‡Ø³ØªÙ‡ Ø³ÛŒØ³ØªÙ…ÛŒ ÛŒØ§ÙØª Ù†Ø´Ø¯!");
             coreBin.setExecutable(true);
 
-            showStatus("⚙️ تنظیم مسیریابی ترافیک...");
+            showStatus("âš™ï¸ ØªÙ†Ø¸ÛŒÙ… Ù…Ø³ÛŒØ±ÛŒØ§Ø¨ÛŒ ØªØ±Ø§ÙÛŒÚ©...");
 
             Builder builder = new Builder();
             mInterface = builder.setSession("FandoghShekan")
@@ -108,15 +108,15 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     .addDisallowedApplication(getPackageName())
                     .establish();
 
-            if (mInterface == null) throw new Exception("مجوز ایجاد تونل صادر نشد!");
+            if (mInterface == null) throw new Exception("Ù…Ø¬ÙˆØ² Ø§ÛŒØ¬Ø§Ø¯ ØªÙˆÙ†Ù„ ØµØ§Ø¯Ø± Ù†Ø´Ø¯!");
 
             int fd = mInterface.getFd();
-            AppLog.add(TAG, "TUN fd ساخته شد: " + fd);
+            AppLog.add(TAG, "TUN fd Ø³Ø§Ø®ØªÙ‡ Ø´Ø¯: " + fd);
 
             generateCoreConfig(mVlessLink, baseDir, fd);
-            AppLog.add(TAG, "config.json نوشته شد.");
+            AppLog.add(TAG, "config.json Ù†ÙˆØ´ØªÙ‡ Ø´Ø¯.");
 
-            showStatus("🚀 فندق‌شکن متصل شد.");
+            showStatus("ðŸš€ ÙÙ†Ø¯Ù‚â€ŒØ´Ú©Ù† Ù…ØªØµÙ„ Ø´Ø¯.");
 
             int pid = startCoreNative(
                     coreBin.getAbsolutePath(),
@@ -124,10 +124,10 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     fd
             );
 
-            if (pid < 0) throw new Exception("اجرای هسته با خطا مواجه شد!");
-            AppLog.add(TAG, "هسته با PID=" + pid + " اجرا شد.");
+            if (pid < 0) throw new Exception("Ø§Ø¬Ø±Ø§ÛŒ Ù‡Ø³ØªÙ‡ Ø¨Ø§ Ø®Ø·Ø§ Ù…ÙˆØ§Ø¬Ù‡ Ø´Ø¯!");
+            AppLog.add(TAG, "Ù‡Ø³ØªÙ‡ Ø¨Ø§ PID=" + pid + " Ø§Ø¬Ø±Ø§ Ø´Ø¯.");
 
-            // صبر کن هسته start بشه بعد لاگش رو بخون
+            // ØµØ¨Ø± Ú©Ù† Ù‡Ø³ØªÙ‡ start Ø¨Ø´Ù‡ Ø¨Ø¹Ø¯ Ù„Ø§Ú¯Ø´ Ø±Ùˆ Ø¨Ø®ÙˆÙ†
             Thread.sleep(2000);
             readAndLogCoreOutput(baseDir);
 
@@ -136,12 +136,12 @@ public class FandoghVpnService extends VpnService implements Runnable {
             }
 
         } catch (InterruptedException e) {
-            // خروج امن از حلقه
+            // Ø®Ø±ÙˆØ¬ Ø§Ù…Ù† Ø§Ø² Ø­Ù„Ù‚Ù‡
         } catch (Exception e) {
-            Log.e(TAG, "خطا: " + e.getMessage());
-            AppLog.add(TAG, "❌ خطا: " + e.getMessage());
-            showStatus("❌ خطا: " + e.getMessage());
-            // حتی اگه خطا بود لاگ هسته رو بخون
+            Log.e(TAG, "Ø®Ø·Ø§: " + e.getMessage());
+            AppLog.add(TAG, "âŒ Ø®Ø·Ø§: " + e.getMessage());
+            showStatus("âŒ Ø®Ø·Ø§: " + e.getMessage());
+            // Ø­ØªÛŒ Ø§Ú¯Ù‡ Ø®Ø·Ø§ Ø¨ÙˆØ¯ Ù„Ø§Ú¯ Ù‡Ø³ØªÙ‡ Ø±Ùˆ Ø¨Ø®ÙˆÙ†
             readAndLogCoreOutput(baseDir);
         } finally {
             stopVpn();
@@ -151,7 +151,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
     private void readAndLogCoreOutput(File baseDir) {
         File logFile = new File(baseDir, "core_output.log");
         if (!logFile.exists()) {
-            AppLog.add(TAG, "⚠️ فایل لاگ هسته وجود ندارد - هسته اصلاً اجرا نشده!");
+            AppLog.add(TAG, "âš ï¸ ÙØ§ÛŒÙ„ Ù„Ø§Ú¯ Ù‡Ø³ØªÙ‡ ÙˆØ¬ÙˆØ¯ Ù†Ø¯Ø§Ø±Ø¯ - Ù‡Ø³ØªÙ‡ Ø§ØµÙ„Ø§Ù‹ Ø§Ø¬Ø±Ø§ Ù†Ø´Ø¯Ù‡!");
             return;
         }
         try (BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
@@ -164,18 +164,18 @@ public class FandoghVpnService extends VpnService implements Runnable {
             }
             String output = sb.toString().trim();
             if (output.isEmpty()) {
-                AppLog.add(TAG, "⚠️ لاگ هسته خالیه - احتمالاً config.json مشکل دارد");
+                AppLog.add(TAG, "âš ï¸ Ù„Ø§Ú¯ Ù‡Ø³ØªÙ‡ Ø®Ø§Ù„ÛŒÙ‡ - Ø§Ø­ØªÙ…Ø§Ù„Ø§Ù‹ config.json Ù…Ø´Ú©Ù„ Ø¯Ø§Ø±Ø¯");
             } else {
-                AppLog.add(TAG, "📋 خروجی هسته:\n" + output);
+                AppLog.add(TAG, "ðŸ“‹ Ø®Ø±ÙˆØ¬ÛŒ Ù‡Ø³ØªÙ‡:\n" + output);
             }
         } catch (Exception e) {
-            AppLog.add(TAG, "خطا در خواندن لاگ هسته: " + e.getMessage());
+            AppLog.add(TAG, "Ø®Ø·Ø§ Ø¯Ø± Ø®ÙˆØ§Ù†Ø¯Ù† Ù„Ø§Ú¯ Ù‡Ø³ØªÙ‡: " + e.getMessage());
         }
     }
 
     private void generateCoreConfig(String link, File baseDir, int tunFd) throws Exception {
         if (link == null || !link.startsWith("vless://")) {
-            throw new Exception("لینک کانفیگ نامعتبر است (فقط vless پشتیبانی می‌شود).");
+            throw new Exception("Ù„ÛŒÙ†Ú© Ú©Ø§Ù†ÙÛŒÚ¯ Ù†Ø§Ù…Ø¹ØªØ¨Ø± Ø§Ø³Øª (ÙÙ‚Ø· vless Ù¾Ø´ØªÛŒØ¨Ø§Ù†ÛŒ Ù…ÛŒâ€ŒØ´ÙˆØ¯).");
         }
 
         String host = "", uuid = "", security = "none", type = "tcp",
@@ -216,10 +216,10 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 }
             }
         } catch (Exception e) {
-            throw new Exception("خطا در پارس کردن لینک vless");
+            throw new Exception("Ø®Ø·Ø§ Ø¯Ø± Ù¾Ø§Ø±Ø³ Ú©Ø±Ø¯Ù† Ù„ÛŒÙ†Ú© vless");
         }
 
-        AppLog.add(TAG, "پارس لینک: host=" + host + " port=" + port + " type=" + type + " security=" + security);
+        AppLog.add(TAG, "Ù¾Ø§Ø±Ø³ Ù„ÛŒÙ†Ú©: host=" + host + " port=" + port + " type=" + type + " security=" + security);
 
         JSONObject root = new JSONObject();
 
@@ -236,14 +236,18 @@ public class FandoghVpnService extends VpnService implements Runnable {
         dns.put("servers", dnsServers);
         root.put("dns", dns);
 
+        // âœ… Ø§ØµÙ„Ø§Ø­ Ø§ØµÙ„ÛŒ: Ø¨Ù‡ Ø¬Ø§ÛŒ fd Ù…Ø³ØªÙ‚ÛŒÙ…ØŒ Ø§Ø² /proc/self/fd/N Ø§Ø³ØªÙØ§Ø¯Ù‡ Ù…ÛŒâ€ŒÚ©Ù†ÛŒÙ…
+        // sing-box Ù†Ø³Ø®Ù‡â€ŒÙ‡Ø§ÛŒ Ø¬Ø¯ÛŒØ¯ fd Ø±Ø§ Ø¯Ø± inbound Ù‚Ø¨ÙˆÙ„ Ù†Ù…ÛŒâ€ŒÚ©Ù†Ø¯
         JSONArray inbounds = new JSONArray();
         JSONObject tunIn = new JSONObject();
         tunIn.put("type", "tun");
         tunIn.put("tag", "tun-in");
-        tunIn.put("fd", tunFd);
+        tunIn.put("device", "/proc/self/fd/" + tunFd); // âœ… fd Ø§Ø² Ø·Ø±ÛŒÙ‚ Ù…Ø³ÛŒØ± /proc
         tunIn.put("mtu", 1500);
         tunIn.put("inet4_address", "172.19.0.1/30");
         tunIn.put("inet6_address", "fd00:1:2:3::1/126");
+        tunIn.put("auto_route", false);                 // âœ… Android Ø®ÙˆØ¯Ø´ routing Ø³Ø§Ø®ØªÙ‡
+        tunIn.put("strict_route", false);
         inbounds.put(tunIn);
         root.put("inbounds", inbounds);
 
@@ -315,7 +319,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
             }
             stopForeground(true);
         } catch (Exception e) {
-            Log.e(TAG, "خطا در توقف: " + e.getMessage());
+            Log.e(TAG, "Ø®Ø·Ø§ Ø¯Ø± ØªÙˆÙ‚Ù: " + e.getMessage());
         }
     }
 
@@ -346,13 +350,13 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE
         );
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("فندق‌شکن")
-                .setContentText("اتصال ایمن برقرار است 🛡️")
+                .setContentTitle("ÙÙ†Ø¯Ù‚â€ŒØ´Ú©Ù†")
+                .setContentText("Ø§ØªØµØ§Ù„ Ø§ÛŒÙ…Ù† Ø¨Ø±Ù‚Ø±Ø§Ø± Ø§Ø³Øª ðŸ›¡ï¸")
                 .setSmallIcon(android.R.drawable.ic_secure)
                 .setContentIntent(mainPendingIntent)
-                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "قطع اتصال", stopPendingIntent)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Ù‚Ø·Ø¹ Ø§ØªØµØ§Ù„", stopPendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
                 .build();
     }
-            }
+    }

@@ -1,42 +1,38 @@
 plugins {
-    id 'com.android.application'
+    id("com.android.application")
 }
 
 android {
-    namespace 'com.fandogh.shekan'
-    compileSdk 34
+    namespace = "com.fandogh.shekan"
+    compileSdk = 34
 
     defaultConfig {
-        applicationId "com.fandogh.shekan"
-        minSdk 24
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        applicationId = "com.fandogh.shekan"
+        minSdk = 24
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
         
-        // معرفی CMake به گریدل برای کامپایل کدهای C++
         externalNativeBuild {
             cmake {
-                cppFlags ""
+                cppFlags = ""
             }
         }
     }
 
-    // آدرس‌دهی دقیق فایل کانفیگ CMake
     externalNativeBuild {
         cmake {
-            path "src/main/cpp/CMakeLists.txt"
-            
+            path = file("src/main/cpp/CMakeLists.txt")
         }
     }
 
     buildTypes {
         release {
-            minifyEnabled true // مبهم‌سازی کدهای جاوا جهت مسدودسازی مهندسی معکوس
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            minifyEnabled = true 
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
-    // تنظیمات استخراج اجباری باینری‌های نیتیو (مثل libxray.so) بر روی دیسک گوشی
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -45,10 +41,7 @@ android {
 }
 
 dependencies {
-    // کتابخانه رسمی امنیت گوگل برای ذخیره‌سازی رمزنگاری شده کش کانفیگ‌ها
-    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
-    
-    // وابستگی‌های پایه اندروید
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.9.0'
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.9.0")
 }

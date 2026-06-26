@@ -98,7 +98,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         File logFile = new File(baseDir, "core.log");
         
         if (logFile.exists()) {
-            logFile.delete();
+            logFile.delete(); // پاکسازی لاگ‌های حجیم قبلی برای شروع تازه
         }
 
         try {
@@ -138,7 +138,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
             isRunning = true;
             
-            // فعال‌سازی رادار لاگ همزمان با متد نیتیو
+            // 📡 فعال‌سازی رادار مانیتورینگ بلادرنگ فایل لاگ هسته
             startCoreLogStreamer(logFile);
 
             AppLog.add(TAG, "⚡ در حال فراخوانی متد نیتیو startCoreNative...");
@@ -194,7 +194,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
                              (uri.getQueryParameter("path") != null ? uri.getQueryParameter("path") : "");
             }
             
-            // 🔎 لاگ دیباگ برای صحت‌سنجی استخراج رشته پارامترها در لایه جاوا
             AppLog.add(TAG, "🛠️ [Debug Parser] Host: " + host + " | Port: " + port + " | Type: " + type + " | Security: " + security);
             
         } catch (Exception e) {
@@ -203,26 +202,26 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
         JSONObject root = new JSONObject();
 
-        // ۱. تنظیمات لاگ (🚀 ارتقا به TRACE برای دریافت تمام جزییات پکت‌ها و ارورهای TLS)
+        // ۱. تنظیمات حداکثری لاگ (TRACE) به همراه خروجی مستقیم روی دیسک
         JSONObject log = new JSONObject();
         log.put("level", "trace");
         log.put("output", new File(baseDir, "core.log").getAbsolutePath());
         log.put("timestamp", true);
         root.put("log", log);
 
-        // ۲. ساختار DNS
+        // ۲. ساختار هوشمند مانیتورینگ DNS هسته
         JSONObject dns = new JSONObject();
         JSONArray dnsServers = new JSONArray();
 
         JSONObject remoteDns = new JSONObject();
         remoteDns.put("tag", "remote-dns");
-        remoteDns.put("address", "8.8.8.8");
+        remoteDns.put("address", "1.1.1.1");
         remoteDns.put("detour", "proxy"); 
         dnsServers.put(remoteDns);
 
         JSONObject directDns = new JSONObject();
         directDns.put("tag", "direct-dns");
-        directDns.put("address", "1.1.1.1"); 
+        directDns.put("address", "8.8.8.8"); 
         directDns.put("detour", "direct"); 
         dnsServers.put(directDns);
 
@@ -242,12 +241,12 @@ public class FandoghVpnService extends VpnService implements Runnable {
         dns.put("strategy", "prefer_ipv4");
         root.put("dns", dns);
 
-        // ۳. تنظیمات اینترفیس TUN
+        // ۳. تنظیمات اینترفیس TUN (✨ اصلاح طلایی: تغییر کلید به fd)
         JSONArray inbounds = new JSONArray();
         JSONObject tunIn = new JSONObject();
         tunIn.put("type", "tun");
         tunIn.put("tag", "tun-in");
-        tunIn.put("file_descriptor", tunFd); 
+        tunIn.put("fd", tunFd); // تغییر حیاتی از file_descriptor به fd برای ممانعت از کرش پنهان هسته
         tunIn.put("inet4_address", "172.19.0.1/24");
         tunIn.put("inet6_address", "fd00:1:2:3::1/126");
         tunIn.put("mtu", 1500);
@@ -255,6 +254,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         tunIn.put("strict_route", false);
         tunIn.put("stack", "mixed");       
         tunIn.put("sniff", true);         
+        tunIn.put("sniff_override_destination", true);
         inbounds.put(tunIn);
         root.put("inbounds", inbounds);
 
@@ -322,13 +322,14 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
         root.put("outbounds", outbounds);
 
-        // ۵. قوانین روتینگ
+        // ۵. قوانین روتینگ هوشمند (شکار همزمان بر اساس پروتکل و پورت ۵۳ سیستم‌عامل)
         JSONObject route = new JSONObject();
         JSONArray rules = new JSONArray();
 
         JSONObject dnsRule = new JSONObject();
-        JSONArray protoArray = new JSONArray();
-        protoArray.put("dns");
+        JSONArray portArray = new JSONArray(); portArray.put(53);
+        JSONArray protoArray = new JSONArray(); protoArray.put("dns");
+        dnsRule.put("port", portArray);
         dnsRule.put("protocol", protoArray);
         dnsRule.put("outbound", "dns-out");
         rules.put(dnsRule);
@@ -348,7 +349,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         route.put("auto_detect_interface", true); 
         root.put("route", route);
 
-        AppLog.add(TAG, "⚙️ [Config Generated with TRACE level]");
+        AppLog.add(TAG, "⚙️ [Config Generated Flawlessly]");
 
         File configFile = new File(baseDir, "config.json");
         try (FileOutputStream fos = new FileOutputStream(configFile)) {
@@ -359,28 +360,35 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
     private void startCoreLogStreamer(final File logFile) {
         mLogThread = new Thread(() -> {
-            AppLog.add(TAG, "📡 رادار مانیتورینگ لاگ‌های داخلی هسته فعال شد.");
+            AppLog.add(TAG, "📡 رادار مانیتورینگ فایل داخلی لاگ هسته فعال شد.");
             try {
-                while (!logFile.exists() && isRunning) {
-                    Thread.sleep(300);
+                int timeout = 0;
+                while (!logFile.exists() && isRunning && timeout < 20) {
+                    Thread.sleep(200);
+                    timeout++;
                 }
 
-                if (!isRunning) return;
+                if (!isRunning || !logFile.exists()) {
+                    AppLog.add(TAG, "⚠️ فایل لوگر هسته یافت نشد. منتظر شروع فرآیند نیتیو...");
+                    return;
+                }
 
                 try (BufferedReader br = new BufferedReader(new FileReader(logFile))) {
                     while (isRunning && !Thread.currentThread().isInterrupted()) {
                         String line = br.readLine();
                         if (line != null) {
-                            AppLog.add("CORE_INTERNAL", "⚙️ " + line);
+                            if (!line.trim().isEmpty()) {
+                                AppLog.add("CORE_INTERNAL", "⚙️ " + line.trim());
+                            }
                         } else {
-                            Thread.sleep(100); // کاهش تاخیر برای خواندن سریع‌تر حجم بالای لاگ‌های Trace
+                            Thread.sleep(100); // تاخیر بهینه برای خواندن خطوط جدید فلاش شده روی دیسک
                         }
                     }
                 }
             } catch (InterruptedException e) {
                 Log.i(TAG, "ترد لاگ هسته متوقف شد.");
             } catch (Exception e) {
-                Log.e(TAG, "خطا در واکشی لاگ هسته: " + e.getMessage());
+                Log.e(TAG, "خطا در استریم لاگ هسته: " + e.getMessage());
             }
         }, "FandoghCoreLogThread");
         mLogThread.start();
@@ -438,5 +446,5 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 .setOngoing(true)
                 .build();
     }
-        }
-        
+                                    }
+                

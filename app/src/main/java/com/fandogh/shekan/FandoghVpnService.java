@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Handler;
@@ -12,6 +13,7 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 import android.widget.Toast;
+
 import androidx.core.app.NotificationCompat;
 
 import org.json.JSONArray;
@@ -25,11 +27,11 @@ public class FandoghVpnService extends VpnService implements Runnable {
     private static final int NOTIFICATION_ID = 1;
     private static final String CHANNEL_ID = "FandoghVpnChannel";
 
-    // 💥 بازگردانی JNI برای باز کردن قفل تونل
+    // وصل کردن کدهای C++ به جاوا
     static {
         System.loadLibrary("native-lib");
     }
-    
+
     public static native int startCoreNative(String corePath, String configPath, int tunFd);
     public static native void stopCoreNative();
 
@@ -46,11 +48,15 @@ public class FandoghVpnService extends VpnService implements Runnable {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
-            if ("STOP".equals(intent.getAction())) {
+            String action = intent.getAction();
+            if ("STOP".equals(action)) {
                 stopVpn();
+                stopSelf();
                 return START_NOT_STICKY;
             }
-            mVlessLink = intent.getStringExtra("VLESS_LINK");
+            if (intent.hasExtra("VLESS_LINK")) {
+                mVlessLink = intent.getStringExtra("VLESS_LINK");
+            }
         }
 
         if (mThread != null && mThread.isAlive()) {
@@ -58,7 +64,13 @@ public class FandoghVpnService extends VpnService implements Runnable {
         }
 
         createNotificationChannel();
-        startForeground(NOTIFICATION_ID, buildNotification());
+        
+        // ایمن‌سازی برای جلوگیری از کرش در اندروید 14 به بالا
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+        } else {
+            startForeground(NOTIFICATION_ID, buildNotification());
+        }
 
         mThread = new Thread(this, "FandoghVpnThread");
         mThread.start();
@@ -77,8 +89,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
             showStatus("🔍 بارگذاری هسته هوشمند...");
             String nativeDir = getApplicationInfo().nativeLibraryDir;
             
-            // ⚠️ نکته: اگر باینری شما Sing-box است، بهتر است نام آن را به libsingbox.so تغییر دهید.
-            // در غیر این صورت همین libxray.so باقی بماند.
             File coreBin = new File(nativeDir, "libxray.so");
             if (!coreBin.exists()) {
                 throw new Exception("هسته سیستمی یافت نشد!");
@@ -90,13 +100,13 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
             Builder builder = new Builder();
             mInterface = builder.setSession("FandoghShekan")
-                    .setMtu(1500) // تنظیم MTU برای جلوگیری از دراپ پکت
+                    .setMtu(1500)
                     .addAddress("172.19.0.1", 30)
-                    .addAddress("fd00:1:2:3::1", 126) // پشتیبانی از IPv6
+                    .addAddress("fd00:1:2:3::1", 126)
                     .addDnsServer("1.1.1.1")
                     .addDnsServer("8.8.8.8")
                     .addRoute("0.0.0.0", 0)
-                    .addRoute("::", 0) // روت کردن کل ترافیک IPv6
+                    .addRoute("::", 0)
                     .addDisallowedApplication(getPackageName())
                     .establish();
 
@@ -106,11 +116,11 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
             int fd = mInterface.getFd();
             
-            // 👈 فراخوانی متد جدید برای ساخت فایل config.json
+            // تولید فایل کانفیگ ضروری برای اجرای هسته
             generateCoreConfig(mVlessLink, baseDir, fd);
+            
             showStatus("🚀 فندق‌شکن متصل شد و ترافیک ایمن گردید.");
 
-            // 🚨 فراخوانی ایمن از طریق C++ (JNI) به جای ProcessBuilder
             int pid = startCoreNative(coreBin.getAbsolutePath(), new File(baseDir, "config.json").getAbsolutePath(), fd);
             if (pid < 0) throw new Exception("اجرای هسته با خطا مواجه شد!");
 
@@ -133,15 +143,13 @@ public class FandoghVpnService extends VpnService implements Runnable {
             throw new Exception("لینک کانفیگ نامعتبر است (فقط vless پشتیبانی می‌شود).");
         }
 
-        // متغیرهای پیش‌فرض
         String host = "", uuid = "", security = "none", type = "tcp", path = "/", sni = "", wsHost = "", fp = "";
         int port = 443;
 
-        // --- ۱. استخراج اطلاعات از لینک VLESS ---
         try {
             String uriBody = link.substring(8);
             int hashIdx = uriBody.indexOf("#");
-            if (hashIdx != -1) uriBody = uriBody.substring(0, hashIdx); // حذف نام نمایشی
+            if (hashIdx != -1) uriBody = uriBody.substring(0, hashIdx);
 
             String[] querySplit = uriBody.split("\\?", 2);
             String credentialsAndServer = querySplit[0];
@@ -161,7 +169,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     if (kv.length < 2) continue;
                     String key = kv[0];
                     String val = java.net.URLDecoder.decode(kv[1], "UTF-8");
-
                     switch (key) {
                         case "type": type = val; break;
                         case "security": security = val; break;
@@ -176,27 +183,22 @@ public class FandoghVpnService extends VpnService implements Runnable {
             throw new Exception("خطا در پارس کردن لینک vless");
         }
 
-        // --- ۲. ساخت ساختار JSON ---
         JSONObject root = new JSONObject();
-
-        // تنظیمات Log
         JSONObject log = new JSONObject();
         log.put("level", "warn");
         root.put("log", log);
 
-        // تنظیمات Inbound (گرفتن ترافیک از تونل اندروید)
         JSONArray inbounds = new JSONArray();
         JSONObject tunIn = new JSONObject();
         tunIn.put("type", "tun");
         tunIn.put("tag", "tun-in");
         tunIn.put("interface_name", "tun0");
-        tunIn.put("fd", tunFd); // 💥 اختصاص فایل دیسکریپتور VPN به هسته
+        tunIn.put("fd", tunFd);
         tunIn.put("auto_route", true);
         tunIn.put("strict_route", true);
         inbounds.put(tunIn);
         root.put("inbounds", inbounds);
 
-        // تنظیمات Outbound (ارسال ترافیک به سرور)
         JSONArray outbounds = new JSONArray();
         JSONObject vlessOut = new JSONObject();
         vlessOut.put("type", "vless");
@@ -233,7 +235,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
         outbounds.put(vlessOut);
         root.put("outbounds", outbounds);
 
-        // --- ۳. نوشتن فایل روی دیسک ---
         File configFile = new File(baseDir, "config.json");
         try (FileOutputStream fos = new FileOutputStream(configFile)) {
             fos.write(root.toString(2).getBytes("UTF-8")); 
@@ -243,7 +244,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
     private void stopVpn() {
         try {
-            stopCoreNative(); // 👈 توقف از طریق JNI
+            stopCoreNative();
             
             if (mThread != null) {
                 mThread.interrupt();
@@ -254,7 +255,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 mInterface = null;
             }
             stopForeground(true);
-            stopSelf();
         } catch (Exception e) {
             Log.e(TAG, "خطا در توقف: " + e.getMessage());
         }
@@ -267,7 +267,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     "Fandogh VPN Service",
                     NotificationManager.IMPORTANCE_LOW
             );
-            // حذف صدا و ویبره برای نوتیفیکیشن سرویس دائمی
             channel.setSound(null, null);
             channel.enableVibration(false);
             
@@ -279,16 +278,16 @@ public class FandoghVpnService extends VpnService implements Runnable {
     }
 
     private Notification buildNotification() {
-        Intent stopIntent = new Intent(this, FandoghVpnService.class);
-        stopIntent.setAction("STOP");
-        PendingIntent stopPendingIntent = PendingIntent.getService(
-                this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE
-        );
-
         Intent mainIntent = new Intent(this, MainActivity.class);
         PendingIntent mainPendingIntent = PendingIntent.getActivity(
                 this, 0, mainIntent, PendingIntent.FLAG_IMMUTABLE
         );
+
+        Intent stopIntent = new Intent(this, FandoghVpnService.class);
+        stopIntent.setAction("STOP");
+        PendingIntent stopPendingIntent = PendingIntent.getService(
+                this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE
+            );
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("فندق‌شکن")
@@ -300,4 +299,4 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 .setOngoing(true)
                 .build();
     }
-    }
+            }

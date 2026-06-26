@@ -27,10 +27,10 @@ public class FandoghVpnService extends VpnService implements Runnable {
     private static final int NOTIFICATION_ID = 1;
     private static final String CHANNEL_ID = "FandoghVpnChannel";
 
-    // هماهنگ‌کننده وضعیت برای رسیور MainActivity
+    // 🟢 متغیر استاتیک برای هماهنگی با MainActivity (حل مشکل ریست شدن دکمه)
     public static volatile boolean isRunning = false;
     
-    // قفل اختصاصی برای همگام‌سازی تردها و جلوگیری از نشت ترافیک
+    // قفل همگام‌سازی برای جلوگیری از تداخل تردها
     private final Object mLock = new Object();
 
     static {
@@ -68,7 +68,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
         synchronized (mLock) {
             if (mThread != null && mThread.isAlive()) {
-                AppLog.add(TAG, "🔄 درخواست اتصال جدید؛ در حال نابود کردن ترد فعال قبلی...");
+                AppLog.add(TAG, "🔄 ترد قدیمی هنوز زنده است؛ ریستارت امن ترد...");
                 mThread.interrupt();
                 try {
                     mThread.join(500); 
@@ -89,7 +89,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
     @Override
     public void onDestroy() {
-        AppLog.add(TAG, "♻️ onDestroy سرویس فراخوانی شد. پاکسازی نهایی...");
+        AppLog.add(TAG, "♻️ سرویس به طور کامل متوقف و حافظه پاکسازی شد.");
         stopVpn();
         super.onDestroy();
     }
@@ -119,7 +119,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
                         .addDnsServer("8.8.8.8")
                         .addRoute("0.0.0.0", 0)
                         .addRoute("::", 0)
-                        .addDisallowedApplication(getPackageName()) 
+                        .addDisallowedApplication(getPackageName()) // دور زدن خود اپلیکیشن برای جلوگیری از لوپ
                         .establish();
             }
 
@@ -130,7 +130,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
             int fd = mInterface.getFd();
             AppLog.add(TAG, "✅ [TUN Interface] با موفقیت ایجاد شد. FileDescriptor: " + fd);
 
-            // ایجاد کانفیگ با سیستم لاگ‌گیری دقیق مسیر ترافیک
+            // 🛠️ ایجاد کانفیگ هوشمند ضد بن‌بست DNS
             generateSingBoxConfig(mVlessLink, baseDir, fd);
 
             int pid = startCoreNative(coreBin.getAbsolutePath(), new File(baseDir, "config.json").getAbsolutePath(), fd);
@@ -140,6 +140,8 @@ public class FandoghVpnService extends VpnService implements Runnable {
             
             AppLog.add(TAG, "🚀 هسته نیتیو با موفقیت تزریق شد. PID = " + pid);
             showStatus("🚀 فندق‌شکن متصل شد.");
+            
+            // 🟢 سرویس با موفقیت فعال شد
             isRunning = true;
 
             while (!Thread.currentThread().isInterrupted()) {
@@ -158,7 +160,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
     }
 
     /**
-     * 🚦 متد تولید کانفیگ همراه با مستندسازی و لاگ‌گیری دقیق نقشه عبور ترافیک
+     * 🚦 متد اصلاح‌شده تولید کانفیگ با معماری تفکیک DNS برای عبور قطعی ترافیک
      */
     private void generateSingBoxConfig(String link, File baseDir, int tunFd) throws Exception {
         if (link == null || !link.toLowerCase().startsWith("vless://")) {
@@ -191,45 +193,66 @@ public class FandoghVpnService extends VpnService implements Runnable {
             throw new Exception("خطای پارسر اندروید روی کانفیگ: " + e.getMessage());
         }
 
-        // 📝 لاگ‌گیری جزئیات مهندسی ترافیک (Traffic Routing Blueprint)
+        // 📝 پرینت ساختار مهندسی شده شبکه در کنسول برنامه شما
         AppLog.add(TAG, "🗺️ [نقشه مسیریابی ترافیک فندق‌شکن]");
         AppLog.add(TAG, "🔗 مشخصات سرور خروجی: " + host + ":" + port + " via " + type.toUpperCase());
-        AppLog.add(TAG, "📥 [مسیر ورودی]: کل ترافیک دستگاه اندروید -> VpnService TUN (fd:" + tunFd + ") -> هسته کارگذاری شده");
-        AppLog.add(TAG, "📍 [قانون ۱ - امنیتی دی‌ان‌اس]: تمام درخواست‌های UDP:53 -> هدایت به outbound:dns-out -> رمزنگاری و عبور از داخل تونل پروکسی جهت جلوگیری از نشت (DNS Leak)");
-        AppLog.add(TAG, "📍 [قانون ۲ - ترافیک داخلی]: آی‌پ‌ی‌های رنج Private/شبکه داخلی -> هدایت به outbound:direct -> بدون فیلترشکن و مستقیم");
-        AppLog.add(TAG, "📍 [قانون ۳ - ترافیک عمومی]: ترافیک بین‌الملل (باقی‌مانده) -> هدایت به outbound:proxy -> پروتکل VLESS (" + security + ")");
+        AppLog.add(TAG, "🔓 [شکستن لوپ DNS]: دامنه " + host + " مستقیم (Direct) حل می‌شود تا اینترنت فریز نشود.");
 
         JSONObject root = new JSONObject();
 
-        // ۱. لاگ هسته (تغییر لایه لاگ به info برای دریافت ردپای پکت‌ها در لایه نیتیو)
+        // ۱. تنظیمات لاگ داخلی هسته
         JSONObject log = new JSONObject();
         log.put("level", "info");
         log.put("timestamp", true);
         root.put("log", log);
 
-        // ۲. سرویس هوشمند DNS هسته
+        // ۲. ساختار DNS دوکاناله (حل‌کننده بن‌بست اینترنت)
         JSONObject dns = new JSONObject();
         JSONArray dnsServers = new JSONArray();
+
+        // کانال اول: مخصوص سایت‌های فیلتر شده (عبور از داخل پروکسی)
         JSONObject remoteDns = new JSONObject();
         remoteDns.put("tag", "remote-dns");
         remoteDns.put("address", "8.8.8.8");
         remoteDns.put("detour", "proxy"); 
         dnsServers.put(remoteDns);
+
+        // کانال دوم: مخصوص آدرس خود سرور (عبور مستقیم از اینترنت واقعی گوشی برای باز شدن تونل)
+        JSONObject directDns = new JSONObject();
+        directDns.put("tag", "direct-dns");
+        directDns.put("address", "1.1.1.1"); 
+        directDns.put("detour", "direct"); 
+        dnsServers.put(directDns);
+
         dns.put("servers", dnsServers);
+
+        // 🌟 قانون کلیدی: آدرس دامنه سرور نباید وارد پروکسی شود، وگرنه اینترنت کور می‌شود!
+        JSONArray dnsRules = new JSONArray();
+        JSONObject bypassRule = new JSONObject();
+        JSONArray bypassDomains = new JSONArray();
+        bypassDomains.put(host); 
+        if (!sni.isEmpty()) {
+            bypassDomains.put(sni);
+        }
+        bypassRule.put("domain", bypassDomains);
+        bypassRule.put("server", "direct-dns"); 
+        dnsRules.put(bypassRule);
+
+        dns.put("rules", dnsRules);
         dns.put("final", "remote-dns");
         dns.put("strategy", "prefer_ipv4");
         root.put("dns", dns);
 
-        // ۳. تنظیمات ورودی اینترفیس لایه ۳
+        // ۳. تنظیمات ورودی اینترفیس لایه ۳ (TUN Inbound)
         JSONArray inbounds = new JSONArray();
         JSONObject tunIn = new JSONObject();
         tunIn.put("type", "tun");
         tunIn.put("tag", "tun-in");
         tunIn.put("fd", tunFd); 
         tunIn.put("mtu", 1500);
-        tunIn.put("auto_route", false);   // بر عهده VpnService اندروید است
+        tunIn.put("auto_route", false);   // مدیریت مسیر بر عهده اندروید است
         tunIn.put("strict_route", false);
-        tunIn.put("stack", "gvisor");     // پشته شبکه gVisor برای پایداری پکت‌ها
+        tunIn.put("stack", "mixed");       // استفاده از پشته ترکیبی برای پایداری پکت‌ها روی تمامی پردازنده‌ها
         tunIn.put("sniff", true);         
         inbounds.put(tunIn);
         root.put("inbounds", inbounds);
@@ -237,7 +260,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         // ۴. خروجی‌ها (Outbounds)
         JSONArray outbounds = new JSONArray();
 
-        // خروجی اصلی VLESS
+        // خروجی تونل اصلی (VLESS)
         JSONObject vlessOut = new JSONObject();
         vlessOut.put("type", "vless");
         vlessOut.put("tag", "proxy");
@@ -271,13 +294,13 @@ public class FandoghVpnService extends VpnService implements Runnable {
         }
         outbounds.put(vlessOut);
 
-        // خروجی دایرکت
+        // خروجی عبور مستقیم (Direct)
         JSONObject directOut = new JSONObject();
         directOut.put("type", "direct");
         directOut.put("tag", "direct");
         outbounds.put(directOut);
 
-        // خروجی مجزای دی‌ان‌اس (حل مشکل فریز شدن اینترنت)
+        // خروجی پکت‌های سیستم مدیریت DNS هسته
         JSONObject dnsOut = new JSONObject();
         dnsOut.put("type", "dns");
         dnsOut.put("tag", "dns-out");
@@ -285,83 +308,15 @@ public class FandoghVpnService extends VpnService implements Runnable {
 
         root.put("outbounds", outbounds);
 
-        // ۵. قوانین مسیریابی نهایی هسته
+        // ۵. قوانین روتینگ هسته برای پکت‌های ورودی دستگاه
         JSONObject route = new JSONObject();
         JSONArray rules = new JSONArray();
 
-        // قانون پکت‌های پروتکل DNS
+        // هدایت پکت‌های استاندارد لایه شبکه DNS به موتور پردازش داخلی
         JSONObject dnsRule = new JSONObject();
         dnsRule.put("protocol", "dns");
         dnsRule.put("outbound", "dns-out");
         rules.put(dnsRule);
 
-        // قانون آی‌پی‌های خصوصی شبکه‌های محلی
-        JSONObject privateRule = new JSONObject();
-        privateRule.put("ip_is_private", true);
-        privateRule.put("outbound", "direct");
-        rules.put(privateRule);
-
-        route.put("rules", rules);
-        route.put("final", "proxy");
-        route.put("auto_detect_interface", false); // عدم تداخل با لایه روت اندروید
-        root.put("route", route);
-
-        File configFile = new File(baseDir, "config.json");
-        try (FileOutputStream fos = new FileOutputStream(configFile)) {
-            fos.write(root.toString(2).getBytes("UTF-8"));
-            fos.flush();
-        }
-        AppLog.add(TAG, "💾 فایل کامپایل شده نهایی config.json با موفقیت در دایرکتوری خصوصی ذخیره شد.");
-    }
-
-    private void stopVpn() {
-        synchronized (mLock) {
-            isRunning = false;
-            try {
-                stopCoreNative();
-                AppLog.add(TAG, "📉 هسته نیتیو متوقف شد.");
-            } catch (Exception e) {
-                Log.e(TAG, "خطا در بستن هسته: " + e.getMessage());
-            }
-
-            if (mInterface != null) {
-                try {
-                    mInterface.close();
-                    AppLog.add(TAG, "🔒 اینترفیس TUN اندروید بسته شد و ترافیک به حالت عادی برگشت.");
-                } catch (Exception e) {
-                    Log.e(TAG, "خطا در بستن فایل دیسکریپتور: " + e.getMessage());
-                }
-                mInterface = null;
-            }
-            stopForeground(true);
-        }
-    }
-
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                    CHANNEL_ID, "Fandogh VPN Service", NotificationManager.IMPORTANCE_LOW
-            );
-            channel.setSound(null, null);
-            channel.enableVibration(false);
-
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) manager.createNotificationChannel(channel);
-        }
-    }
-
-    private Notification buildNotification() {
-        Intent mainIntent = new Intent(this, MainActivity.class);
-        int pendingFlags = PendingIntent.FLAG_IMMUTABLE;
-        PendingIntent mainPendingIntent = PendingIntent.getActivity(this, 0, mainIntent, pendingFlags);
-
-        return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("فندق‌شکن")
-                .setContentText("اتصال ایمن برقرار است 🛡️")
-                .setSmallIcon(android.R.drawable.ic_secure)
-                .setContentIntent(mainPendingIntent)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setOngoing(true)
-                .build();
-    }
-                    }
+        // هد
+    

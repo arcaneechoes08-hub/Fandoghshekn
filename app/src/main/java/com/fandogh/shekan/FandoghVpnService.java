@@ -86,7 +86,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         try {
             showStatus("🔍 بارگذاری هسته هوشمند...");
             String nativeDir = getApplicationInfo().nativeLibraryDir;
-            
+
             File coreBin = new File(nativeDir, "libxray.so");
             if (!coreBin.exists()) throw new Exception("هسته سیستمی یافت نشد!");
             coreBin.setExecutable(true);
@@ -109,19 +109,22 @@ public class FandoghVpnService extends VpnService implements Runnable {
             if (mInterface == null) throw new Exception("مجوز ایجاد تونل صادر نشد!");
 
             int fd = mInterface.getFd();
-            
-            // تولید فایل کانفیگ JSON
+
             generateCoreConfig(mVlessLink, baseDir, fd);
-            
+
             showStatus("🚀 فندق‌شکن متصل شد.");
 
-            int pid = startCoreNative(coreBin.getAbsolutePath(), new File(baseDir, "config.json").getAbsolutePath(), fd);
+            int pid = startCoreNative(
+                    coreBin.getAbsolutePath(),
+                    new File(baseDir, "config.json").getAbsolutePath(),
+                    fd
+            );
             if (pid < 0) throw new Exception("اجرای هسته با خطا مواجه شد!");
 
             while (!Thread.currentThread().isInterrupted()) {
                 Thread.sleep(5000);
             }
-            
+
         } catch (InterruptedException e) {
             // خروج امن از حلقه
         } catch (Exception e) {
@@ -137,7 +140,9 @@ public class FandoghVpnService extends VpnService implements Runnable {
             throw new Exception("لینک کانفیگ نامعتبر است (فقط vless پشتیبانی می‌شود).");
         }
 
-        String host = "", uuid = "", security = "none", type = "tcp", path = "/", sni = "", wsHost = "", fp = "";
+        // ── parse لینک vless ──
+        String host = "", uuid = "", security = "none", type = "tcp",
+               path = "/", sni = "", wsHost = "", fp = "";
         int port = 443;
 
         try {
@@ -164,12 +169,12 @@ public class FandoghVpnService extends VpnService implements Runnable {
                     String key = kv[0];
                     String val = java.net.URLDecoder.decode(kv[1], "UTF-8");
                     switch (key) {
-                        case "type": type = val; break;
+                        case "type":     type    = val; break;
                         case "security": security = val; break;
-                        case "sni": sni = val; break;
-                        case "host": wsHost = val; break;
-                        case "path": path = val; break;
-                        case "fp": fp = val; break;
+                        case "sni":      sni     = val; break;
+                        case "host":     wsHost  = val; break;
+                        case "path":     path    = val; break;
+                        case "fp":       fp      = val; break;
                     }
                 }
             }
@@ -177,22 +182,38 @@ public class FandoghVpnService extends VpnService implements Runnable {
             throw new Exception("خطا در پارس کردن لینک vless");
         }
 
+        // ── ساخت config.json برای sing-box ──
         JSONObject root = new JSONObject();
+
+        // Log
         JSONObject log = new JSONObject();
         log.put("level", "warn");
         root.put("log", log);
 
+        // DNS
+        JSONObject dns = new JSONObject();
+        JSONArray dnsServers = new JSONArray();
+        JSONObject dnsServer = new JSONObject();
+        dnsServer.put("tag", "google");
+        dnsServer.put("address", "8.8.8.8");
+        dnsServers.put(dnsServer);
+        dns.put("servers", dnsServers);
+        root.put("dns", dns);
+
+        // Inbound: TUN (fd از Android VpnService)
         JSONArray inbounds = new JSONArray();
         JSONObject tunIn = new JSONObject();
         tunIn.put("type", "tun");
         tunIn.put("tag", "tun-in");
-        tunIn.put("interface_name", "tun0");
         tunIn.put("fd", tunFd);
-        tunIn.put("auto_route", true);
-        tunIn.put("strict_route", true);
+        tunIn.put("mtu", 1500);
+        tunIn.put("inet4_address", "172.19.0.1/30");
+        tunIn.put("inet6_address", "fd00:1:2:3::1/126");
+        // auto_route و strict_route حذف شدن - routing رو Android انجام می‌ده
         inbounds.put(tunIn);
         root.put("inbounds", inbounds);
 
+        // Outbound: VLESS
         JSONArray outbounds = new JSONArray();
         JSONObject vlessOut = new JSONObject();
         vlessOut.put("type", "vless");
@@ -229,9 +250,21 @@ public class FandoghVpnService extends VpnService implements Runnable {
         outbounds.put(vlessOut);
         root.put("outbounds", outbounds);
 
+        // Route: ترافیک tun-in → proxy
+        JSONObject route = new JSONObject();
+        JSONArray rules = new JSONArray();
+        JSONObject rule = new JSONObject();
+        rule.put("inbound", new JSONArray().put("tun-in"));
+        rule.put("outbound", "proxy");
+        rules.put(rule);
+        route.put("rules", rules);
+        route.put("final", "proxy");
+        root.put("route", route);
+
+        // ذخیره فایل
         File configFile = new File(baseDir, "config.json");
         try (FileOutputStream fos = new FileOutputStream(configFile)) {
-            fos.write(root.toString(2).getBytes("UTF-8")); 
+            fos.write(root.toString(2).getBytes("UTF-8"));
             fos.flush();
         }
     }
@@ -282,11 +315,11 @@ public class FandoghVpnService extends VpnService implements Runnable {
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("فندق‌شکن")
                 .setContentText("اتصال ایمن برقرار است 🛡️")
-                .setSmallIcon(android.R.drawable.ic_secure) 
+                .setSmallIcon(android.R.drawable.ic_secure)
                 .setContentIntent(mainPendingIntent)
                 .addAction(android.R.drawable.ic_menu_close_clear_cancel, "قطع اتصال", stopPendingIntent)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
                 .build();
     }
-                              }
+            }

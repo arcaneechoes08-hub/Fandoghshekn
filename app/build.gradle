@@ -15,7 +15,8 @@ android {
         
         externalNativeBuild {
             cmake {
-                cppFlags = ""
+                // اصلاح شده: استفاده از لیست خالی به جای رشته خالی
+                cppFlags = [] 
             }
         }
     }

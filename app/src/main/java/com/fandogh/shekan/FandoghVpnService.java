@@ -137,6 +137,8 @@ public class FandoghVpnService extends VpnService implements Runnable {
             generateSingBoxConfig(mVlessLink, baseDir, fd);
 
             isRunning = true;
+            
+            // فعال‌سازی رادار لاگ همزمان با متد نیتیو
             startCoreLogStreamer(logFile);
 
             AppLog.add(TAG, "⚡ در حال فراخوانی متد نیتیو startCoreNative...");
@@ -171,7 +173,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         String host, uuid;
         int port;
         String type = "tcp", security = "none", path = "/", sni = "", wsHost = "", fp = "";
-        String pbk = "", sid = "", serviceName = ""; // فیلدهای کلیدی جدید برای کامپوننت‌های پیشرفته
+        String pbk = "", sid = "", serviceName = "";
 
         try {
             Uri uri = Uri.parse(link);
@@ -186,22 +188,24 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 wsHost = uri.getQueryParameter("host") != null ? uri.getQueryParameter("host") : "";
                 path = uri.getQueryParameter("path") != null ? uri.getQueryParameter("path") : "/";
                 fp = uri.getQueryParameter("fp") != null ? uri.getQueryParameter("fp") : "";
-                
-                // 🛰️ استخراج فیلدهای پیشرفته REALITY و gRPC از کوئری لینک
                 pbk = uri.getQueryParameter("pbk") != null ? uri.getQueryParameter("pbk") : "";
                 sid = uri.getQueryParameter("sid") != null ? uri.getQueryParameter("sid") : "";
                 serviceName = uri.getQueryParameter("serviceName") != null ? uri.getQueryParameter("serviceName") : 
                              (uri.getQueryParameter("path") != null ? uri.getQueryParameter("path") : "");
             }
+            
+            // 🔎 لاگ دیباگ برای صحت‌سنجی استخراج رشته پارامترها در لایه جاوا
+            AppLog.add(TAG, "🛠️ [Debug Parser] Host: " + host + " | Port: " + port + " | Type: " + type + " | Security: " + security);
+            
         } catch (Exception e) {
             throw new Exception("خطا در پارس لینک: " + e.getMessage());
         }
 
         JSONObject root = new JSONObject();
 
-        // ۱. تنظیمات لاگ
+        // ۱. تنظیمات لاگ (🚀 ارتقا به TRACE برای دریافت تمام جزییات پکت‌ها و ارورهای TLS)
         JSONObject log = new JSONObject();
-        log.put("level", "info");
+        log.put("level", "trace");
         log.put("output", new File(baseDir, "core.log").getAbsolutePath());
         log.put("timestamp", true);
         root.put("log", log);
@@ -238,7 +242,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         dns.put("strategy", "prefer_ipv4");
         root.put("dns", dns);
 
-        // ۳. تنظیمات اینترفیس TUN (✨ فیکس قطعی با تزریق رنج آی‌پی لایه ۳ جهت هماهنگی با اندروید)
+        // ۳. تنظیمات اینترفیس TUN
         JSONArray inbounds = new JSONArray();
         JSONObject tunIn = new JSONObject();
         tunIn.put("type", "tun");
@@ -265,7 +269,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
         vlessOut.put("uuid", uuid);
         vlessOut.put("packet_encoding", "xudp"); 
 
-        // ✨ فیکس ساختار فوق‌العاده حساس پروتکل REALITY در لایه TLS سینگ‌باکس
         if ("tls".equals(security) || "reality".equals(security)) {
             JSONObject tls = new JSONObject();
             tls.put("enabled", true);
@@ -288,7 +291,6 @@ public class FandoghVpnService extends VpnService implements Runnable {
             vlessOut.put("tls", tls);
         }
 
-        // ✨ توسعه لایه ترنسپورت: پشتیبانی همزمان و پایدار از هردو فرمت متمایز WS و gRPC
         if ("ws".equals(type)) {
             JSONObject transport = new JSONObject();
             transport.put("type", "ws");
@@ -346,7 +348,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
         route.put("auto_detect_interface", true); 
         root.put("route", route);
 
-        AppLog.add(TAG, "⚙️ [Config Generated Successfully]");
+        AppLog.add(TAG, "⚙️ [Config Generated with TRACE level]");
 
         File configFile = new File(baseDir, "config.json");
         try (FileOutputStream fos = new FileOutputStream(configFile)) {
@@ -371,7 +373,7 @@ public class FandoghVpnService extends VpnService implements Runnable {
                         if (line != null) {
                             AppLog.add("CORE_INTERNAL", "⚙️ " + line);
                         } else {
-                            Thread.sleep(300); 
+                            Thread.sleep(100); // کاهش تاخیر برای خواندن سریع‌تر حجم بالای لاگ‌های Trace
                         }
                     }
                 }
@@ -436,5 +438,5 @@ public class FandoghVpnService extends VpnService implements Runnable {
                 .setOngoing(true)
                 .build();
     }
-            }
-            
+        }
+        
